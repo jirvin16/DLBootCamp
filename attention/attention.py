@@ -10,10 +10,12 @@ import datetime
 import os
 import time
 import sys
+from pprint import pprint
 
 
 class AttentionNN(object):
 	def __init__(self, config, sess):
+
 		self.sess = sess
 
 		# Training details
@@ -36,7 +38,9 @@ class AttentionNN(object):
 		self.validate 			   = config.validate
 		
 		self.save_every 		   = config.save_every
-		self.checkpoint_dir 	   = os.path.join(self.language, config.checkpoint_dir)
+		self.model_name 		   = config.model_name
+		self.model_directory 	   = os.path.join(self.language, self.model_name)
+		self.checkpoint_directory  = os.path.join(self.model_directory, "checkpoints")
 		
 		# Dimensions and initialization parameters
 		self.init_min              = -0.1
@@ -57,14 +61,29 @@ class AttentionNN(object):
 		if not os.path.isdir(self.language):
 			raise Exception(" [!] Please create a directory titled language name and data files inside.")
 
-		if not os.path.isdir(self.checkpoint_dir):
-			if self.is_test or self.is_sample:
-				raise Exception(" [!] Checkpoints directory %s not found" % self.checkpoint_dir)
-			else:
-				os.makedirs(self.checkpoint_dir)
-
 		if not os.path.isdir(self.data_directory):
 			raise Exception(" [!] Data directory %s not found" % self.data_directory)
+
+		if not os.path.isdir(self.model_directory):
+			os.makedirs(self.model_directory)
+
+		if not os.path.isdir(self.checkpoint_directory):
+			if self.is_test or self.is_sample:
+				raise Exception(" [!] Checkpoints directory %s not found" % self.checkpoint_directory)
+			else:
+				os.makedirs(self.checkpoint_directory)
+
+		if self.is_test:
+			self.outfile  = os.path.join(self.model_directory, "test.out")
+			self.bleu_outfile = os.path.join(self.model_directory, "bleu.out")
+		elif self.is_sample:
+			self.outfile = os.path.join(self.model_directory, "sample.out")
+		else:
+			self.outfile = os.path.join(self.model_directory, "train.out")
+
+		with open(self.outfile, 'w') as outfile:
+			pprint(config.__dict__['__flags'], stream=outfile)
+			outfile.flush()
 
 		# Data paths
 		if self.language == "viet":
@@ -100,11 +119,11 @@ class AttentionNN(object):
 		with tf.variable_scope("encoding"):
 
 			self.source_embed     = tf.get_variable("source_embed", shape=[self.source_vocab_size, self.embedding_dim],
-												initializer=initializer)
+													initializer=initializer)
 			self.source_proj      = tf.get_variable("source_proj", shape=[self.embedding_dim, self.hidden_dim],
-												initializer=initializer)
+													initializer=initializer)
 			self.source_proj_bias = tf.get_variable("source_proj_bias", shape=[self.hidden_dim],
-												initializer=initializer)
+													initializer=initializer)
 			encode_lstm           = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 																 state_is_tuple=True)
 			encode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm, 
@@ -117,11 +136,11 @@ class AttentionNN(object):
 		with tf.variable_scope("decoding"):
 
 			self.target_embed 	  = tf.get_variable("target_embed", shape=[self.target_vocab_size, self.embedding_dim], 
-												initializer=initializer)
+													initializer=initializer)
 			self.target_proj 	  = tf.get_variable("target_proj", shape=[self.embedding_dim, self.hidden_dim], 
-												initializer=initializer)
+													initializer=initializer)
 			self.target_proj_bias = tf.get_variable("target_proj_bias", shape=[self.hidden_dim], 
-												initializer=initializer)
+													initializer=initializer)
 			decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 																 state_is_tuple=True)
 			decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
@@ -130,20 +149,20 @@ class AttentionNN(object):
 																 state_is_tuple=True)
 
 			self.W_embed 		  = tf.get_variable("W_embed", shape=[self.hidden_dim, self.embedding_dim], 
-										   initializer=initializer)
+										   			initializer=initializer)
 			self.b_embed 		  = tf.get_variable("b_embed", shape=[self.embedding_dim], 
-										   initializer=initializer)
+										   			initializer=initializer)
 			self.W_proj 		  = tf.get_variable("W_proj", shape=[self.embedding_dim, self.target_vocab_size], 
-										  initializer=initializer)
+										  			initializer=initializer)
 			self.b_proj 		  = tf.get_variable("b_proj", shape=[self.target_vocab_size], 
-										  initializer=initializer)
+										  			initializer=initializer)
 
 			if self.use_attention:
 
 				self.Wc = tf.get_variable("W_context", shape=[2 * self.hidden_dim, self.hidden_dim], 
-										   initializer=initializer)
+										  initializer=initializer)
 				self.bc = tf.get_variable("b_context", shape=[self.hidden_dim], 
-										   initializer=initializer)
+										  initializer=initializer)
 
 			# feed in previous outputs if testing or sampling
 			# if training, feed in true values
@@ -170,7 +189,6 @@ class AttentionNN(object):
 
 		packed_source_hidden_states = tf.pack(source_hidden_states)
 
-			
 		scores = []
 
 		# for sampling
@@ -236,10 +254,11 @@ class AttentionNN(object):
 		
 		self.sess.run(tf.initialize_all_variables())
 
-		for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
-			print(var.name)
-			print(var.get_shape())	
-			sys.stdout.flush()
+		with open(self.outfile, "a") as outfile:
+			for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+				print(var.name, file=outfile)
+				print(var.get_shape(), file=outfile)	
+				outfile.flush()
 
 		self.saver = tf.train.Saver()
 
@@ -248,15 +267,19 @@ class AttentionNN(object):
 		total_loss = 0.0
 
 		merged_sum = tf.merge_all_summaries()
-		t = datetime.datetime.now()
-		writer = tf.train.SummaryWriter(os.path.join(self.language, "logs", "{}-{}-{}-{}-{}".format(t.year, t.month, t.day, t.hour % 12, t.minute)), self.sess.graph)
+		t 	   	   = datetime.datetime.now()
+		writer     = tf.train.SummaryWriter(os.path.join(self.language, \
+										    "logs", "{}-{}-{}-{}-{}".format(t.year, t.month, t.day, t.hour % 12, t.minute)), \
+										    self.sess.graph)
 
 		if self.show:
 			from utils import ProgressBar
 			bar = ProgressBar('Train', max=self.epochs)
 
-		i = 0
-		valid_loss = float("inf")
+		i 					= 0
+		best_loss 		    = float("inf")
+		previous_train_loss = float("inf")
+		valid_loss 			= float("inf")
 		for epoch in xrange(self.epochs):
 			if self.show: 
 				bar.next()
@@ -280,8 +303,9 @@ class AttentionNN(object):
 				
 				if i % 50 == 0:
 					writer.add_summary(summary, i)
-					print(batch_loss)
-					sys.stdout.flush()
+					with open(self.outfile, 'a') as outfile:
+						print(batch_loss, file=outfile)
+						outfile.flush()
 				
 				i += 1
 				num_batches += 1.0
@@ -295,8 +319,9 @@ class AttentionNN(object):
 				"learning_rate" : self.current_learning_rate,
 			}
 
-			print(state)
-			sys.stdout.flush()
+			with open(self.outfile, 'a') as outfile:
+				print(state, file=outfile)
+				outfile.flush()
 			
 			if self.validate:
 				previous_valid_loss = valid_loss
@@ -307,15 +332,14 @@ class AttentionNN(object):
 				if valid_loss > previous_valid_loss:
 					break
 
-			# Learning rate annealing 
-			# if epoch >= 9 and epoch % 4 == 0:
-			# 	self.current_learning_rate = self.current_learning_rate / 2.
-				# self.lr.assign(self.current_learning_rate).eval()
+			# Adaptive learning rate
+			if previous_train_loss <= train_loss + 1e-1:
+				self.current_learning_rate /= 2.
 
 			# save model after validation check
 			if epoch % self.save_every == 0 or epoch == self.epochs - 1:
 				self.saver.save(self.sess,
-								os.path.join(self.checkpoint_dir, "MemN2N.model")
+								os.path.join(self.checkpoint_directory, "MemN2N.model")
 								)
 
 		if self.show: 
@@ -352,7 +376,9 @@ class AttentionNN(object):
 			loss, = self.sess.run([self.loss], feed)
 
 			if num_batches % 50 == 0:
-				print(loss)
+				with open(self.outfile, 'a') as outfile:
+					print(loss, file=outfile)
+					outfile.flush()
 
 			test_loss += loss
 
@@ -369,14 +395,15 @@ class AttentionNN(object):
 			"test_perplexity" : perplexity,
 		}
 
-		print(state)
-		sys.stdout.flush()
+		with open(self.outfile, 'a') as outfile:
+			print(state, file=outfile)
+			outfile.flush()
 
 		if self.is_test:
 			
 			self.sample()
 			
-			process_files(self.predictions_file, self.truth_file)
+			process_files(self.predictions_file, self.truth_file, self.bleu_outfile)
 
 		return test_loss / num_batches
 
@@ -390,8 +417,8 @@ class AttentionNN(object):
 
 		num_batches = int(np.ceil(sample_size / self.batch_size))
 
-		self.predictions_file = os.path.join(self.data_directory, "predictions.txt")
-		self.truth_file       = os.path.join(self.data_directory, "truth.txt")
+		self.predictions_file = os.path.join(self.model_directory, "predictions.txt")
+		self.truth_file       = os.path.join(self.model_directory, "truth.txt")
 
 		with open(self.predictions_file, 'w') as predictions, open(self.truth_file, 'w') as truth:
 
@@ -424,26 +451,28 @@ class AttentionNN(object):
 						else:
 							break
 					print(" ".join(target_sentence), file=predictions)
+					predictions.flush()
 
 					true_indices = target_batch[j]
 					true_sentence = [self.target_index_vocab[i] for i in true_indices \
 									 if self.target_index_vocab[i] not in ["<pad>", "</s>", "<s>"]]
 					print(" ".join(true_sentence), file=truth)
+					truth.flush()
 
 
 	def run(self):
 		if self.is_test:
 			self.test()
 		elif self.is_sample:
-			print("step 1")
 			self.sample()
 		else:
 			self.train()
 
 	def load(self):
-		print(" [*] Reading checkpoints...")
-		sys.stdout.flush()
-		ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
+		with open(self.outfile, 'a') as outfile:
+			print(" [*] Reading checkpoints...", file=outfile)
+			outfile.flush()
+		ckpt = tf.train.get_checkpoint_state(self.checkpoint_directory)
 		if ckpt and ckpt.model_checkpoint_path:
 			self.saver.restore(self.sess, ckpt.model_checkpoint_path)
 		else:

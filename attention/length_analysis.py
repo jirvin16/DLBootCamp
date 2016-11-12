@@ -4,6 +4,7 @@
 """
 Module docstrings.
 """
+from __future__ import print_function
 
 usage = 'USAGE DESCRIPTION.' 
 
@@ -89,14 +90,15 @@ def compute_bleu(bleu_script, lines):
 
   return bleu
 
-def score_length(lines, sorted_lens):
+def score_length(lines, sorted_lens, bleu_outfile):
   bleus = []
   bleus_cum = []
   lens = []
   total_eval = []
   prev_num_sents = 0
   bleu_script = os.path.dirname(os.path.realpath(__file__)) + '/wmt/multi-bleu.perl'
-  sys.stderr.write('# bleu_script = %s\n' % bleu_script)
+  with open(bleu_outfile, 'a') as outfile:
+    print('# bleu_script = %s\n' % bleu_script, file=outfile)
 
   group_size = 200
   num_total_sents = len(lines)
@@ -119,17 +121,19 @@ def score_length(lines, sorted_lens):
     if num_sents == num_total_sents:
       break
 
-  print 'bleu\tbleu_cum\tlen\tsize'
-  for bleu, bleu_cum, score, num_eval in zip(bleus,bleus_cum,lens,total_eval):
-    print bleu + "\t" + bleu_cum + "\t" + repr(score) + "\t" + repr(num_eval)
+  with open(bleu_outfile, 'a') as outfile:
+    print('bleu\tbleu_cum\tlen\tsize', file=outfile)
+    for bleu, bleu_cum, score, num_eval in zip(bleus,bleus_cum,lens,total_eval):
+      print(bleu + "\t" + bleu_cum + "\t" + repr(score) + "\t" + repr(num_eval), file=outfile)
 
 
-def process_files(trans_file, ref_file):
+def process_files(trans_file, ref_file, bleu_outfile):
   """
   Read data from trans_file, and output to ref_file
   """
 
-  sys.stderr.write('# trans_file = %s, ref_file = %s\n' % (trans_file, ref_file))
+  with open(bleu_outfile, 'w') as outfile:
+    print('# trans_file = %s, ref_file = %s\n' % (trans_file, ref_file), file=outfile)
 
   # input
   ref_inf  = codecs.open(ref_file, 'r', 'utf-8')
@@ -142,7 +146,8 @@ def process_files(trans_file, ref_file):
 
   assert len(trans_lines) == len(ref_lines)
   num_lines = len(trans_lines)
-  sys.stderr.write('Num lines = %d\n' % num_lines)
+  with open(bleu_outfile, 'a') as outfile:
+    print('Num lines = %d\n' % num_lines, file=outfile)
   lines = []
   lens = []
   for ii in xrange(num_lines):
@@ -160,7 +165,7 @@ def process_files(trans_file, ref_file):
     sorted_lens.append(lens[ii])
 
   # score
-  score_length(sorted_lines, sorted_lens)
+  score_length(sorted_lines, sorted_lens, bleu_outfile)
 
 if __name__ == '__main__':
   args = process_command_line()

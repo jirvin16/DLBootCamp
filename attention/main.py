@@ -2,14 +2,11 @@ from __future__ import division
 from __future__ import print_function
 
 import random
-import pprint
+
 import tensorflow as tf
 import sys
 
 from attention import AttentionNN
-# from tf_attention import TFAttentionNN
-
-pp = pprint.PrettyPrinter()
 
 flags = tf.app.flags
  
@@ -27,10 +24,10 @@ flags.DEFINE_float("dropout", 0.2, "Dropout [0.2]")
 flags.DEFINE_boolean("show", False, "Print progress [False]")
 flags.DEFINE_integer("mode", 0, "0 for training, 1 for testing, 2 for sampling [0]")
 flags.DEFINE_boolean("validate", True, "True for cross validation, False otherwise [True]")
-flags.DEFINE_string("checkpoint_dir", "checkpoints", "Checkpoint directory [checkpoints]")
-flags.DEFINE_integer("save_every", 1, "Save every [1] epochs")
+flags.DEFINE_integer("save_every", 5, "Save every [5] epochs")
 flags.DEFINE_string("language", "viet", "Language for data and directory creation []")
-flags.DEFINE_boolean("sample", False, "Sample data [False]")
+flags.DEFINE_boolean("sample", False, "Use sample data [False]")
+flags.DEFINE_string("model_name", "out", "model name for prefix to checkpoint file [unnamed]")
 
 FLAGS = flags.FLAGS
 
@@ -40,20 +37,12 @@ random.seed(FLAGS.random_seed)
 
 def main(_):
 
-    pp.pprint(FLAGS.__flags)
     sys.stdout.flush()
 
     with tf.Session() as sess:
         attn = AttentionNN(FLAGS, sess)
-        # attn = TFAttentionNN(FLAGS, sess)
         attn.build_model()
         attn.run()
-        
-        # if FLAGS.is_test:
-        #     attn.run()
-        # else:
-        #     attn.run()
-
 
 
 if __name__ == "__main__":
