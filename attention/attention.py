@@ -35,6 +35,7 @@ class AttentionNN(object):
 		self.is_test 			   = config.mode == 1
 		self.is_sample 			   = config.mode == 2
 		self.probabilities 		   = []
+		self.alignments 		   = []
 		self.validate 			   = config.validate
 		
 		self.save_every 		   = config.save_every
@@ -100,9 +101,11 @@ class AttentionNN(object):
 			self.test_source_data_path = os.path.join(self.data_directory, sample_prefix + "tst2013.en")
 			self.test_target_data_path = os.path.join(self.data_directory, sample_prefix + "tst2013." + suffix)
 		elif self.is_sample:
-			self.test_source_data_path = os.path.join(self.data_directory, "example.en")
+			self.test_source_data_path = os.path.join(self.model_directory, "example.en")
+			if not os.path.exists(self.test_source_data_path):
+				raise Exception("If in sample mode, must create a file called 'example.en'")
 			# unused
-			self.test_target_data_path = os.path.join(self.data_directory, "example.en")
+			self.test_target_data_path = os.path.join(self.model_directory, "example.en")
 		else:
 			self.test_source_data_path = os.path.join(self.data_directory, sample_prefix + "valid.en")
 			self.test_target_data_path = os.path.join(self.data_directory, sample_prefix + "valid." + suffix)
@@ -193,6 +196,7 @@ class AttentionNN(object):
 
 		# for sampling
 		probabilities = []
+		alignments = []
 			
 		with tf.variable_scope("decoding"):
 
@@ -210,9 +214,11 @@ class AttentionNN(object):
 
 				if self.use_attention:
 
-					attention_scores = tf.reduce_sum(tf.mul(output, packed_source_hidden_states), 2)
+					attention_scores = tf.reduce_sum(tf.mul(output, packed_source_hidden_states), 2) # (M, B)
 
 					a_t       = tf.nn.softmax(tf.transpose(attention_scores))
+
+					alignments.append(a_t) # (B, M)
 
 					c_t       = tf.batch_matmul(tf.transpose(packed_source_hidden_states, perm=[1, 2, 0]), tf.expand_dims(a_t, 2))
 
@@ -246,6 +252,7 @@ class AttentionNN(object):
 		# if sampling or testing, compute probabilities for bleu score
 		if self.is_sample or self.is_test:
 			self.probabilities = tf.transpose(tf.pack(probabilities), [1, 0, 2])
+			self.alignments = tf.transpose(tf.pack(alignments), [1, 0, 2]) # (M, B, M) -> (B, M, M)
 
 		# only optimize if training
 		if not self.is_test and not self.is_sample:
@@ -410,15 +417,21 @@ class AttentionNN(object):
 
 	def sample(self):
 		
-		self.load()
+		# only load model again if we are sampling
+		if self.is_sample:
+			self.load()
 
 		with open(self.test_source_data_path) as sample_data:
 			sample_size = sum(1 for line in sample_data if len(line.replace("\n", "").split(" ")) < self.max_size)
 
 		num_batches = int(np.ceil(sample_size / self.batch_size))
 
-		self.predictions_file = os.path.join(self.model_directory, "predictions.txt")
-		self.truth_file       = os.path.join(self.model_directory, "truth.txt")
+		if self.is_test:
+			self.predictions_file = os.path.join(self.model_directory, "predictions.txt")
+			self.truth_file       = os.path.join(self.model_directory, "truth.txt")
+		else:
+			self.predictions_file = os.path.join(self.model_directory, "example.vi")
+			self.truth_file 	  = os.path.join(self.model_directory, "ignore.txt")
 
 		with open(self.predictions_file, 'w') as predictions, open(self.truth_file, 'w') as truth:
 
@@ -433,8 +446,10 @@ class AttentionNN(object):
 				feed = {self.source_batch: source_batch, self.target_batch: pseudo_target_batch, 
 						self.dropout_var: 0.0, self.sequence_loss_weights:psuedo_sequence_loss_weights}
 
-				probabilities, = self.sess.run([self.probabilities], feed)
+				probabilities, alignments, = self.sess.run([self.probabilities, self.alignments], feed)
 
+				# iterate through the batch examples
+				assert probabilities.shape[0] == alignments.shape[0]
 				for j in range(probabilities.shape[0]):
 
 					# source_indices  = source_batch[j]
@@ -444,20 +459,39 @@ class AttentionNN(object):
 					target_probs    = probabilities[j]
 					target_indices  = np.argmax(target_probs, 1)
 					target_sentence = []
+					k = 0
 					for i in target_indices:
-						next_word = self.target_index_vocab[i]
+						next_word   = self.target_index_vocab[i]
 						if next_word != "</s>":
 							target_sentence.append(next_word)
+							if self.is_sample:
+								alignment_scores = alignments[j][k]
+								k += 1
+								print(" ".join([str(x) for x in alignment_scores]), file=predictions)
+								predictions.flush()
 						else:
 							break
+					if self.is_sample:
+						print("SENTENCE ", end="", file=predictions)
+						predictions.flush()
+
 					print(" ".join(target_sentence), file=predictions)
 					predictions.flush()
 
-					true_indices = target_batch[j]
-					true_sentence = [self.target_index_vocab[i] for i in true_indices \
-									 if self.target_index_vocab[i] not in ["<pad>", "</s>", "<s>"]]
-					print(" ".join(true_sentence), file=truth)
-					truth.flush()
+					if self.is_test:
+						true_indices  = target_batch[j]
+						true_sentence = [self.target_index_vocab[i] for i in true_indices \
+										 if self.target_index_vocab[i] not in ["<pad>", "</s>", "<s>"]]
+						print(" ".join(true_sentence), file=truth)
+						truth.flush()
+
+					# elif self.is_sample:
+					# 	assert alignments.shape[1] == self.max_size
+					# 	for k in range(self.max_size):
+					# 		alignment_scores = alignments[j][k]
+					# 		assert alignment_scores.shape[0] == self.max_size
+					# 		print(",".join([str(x) for x in alignment_scores]), file=predictions)
+
 
 
 	def run(self):
