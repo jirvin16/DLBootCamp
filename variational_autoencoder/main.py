@@ -17,6 +17,8 @@ flags.DEFINE_integer("N_z", 2, "Dimension of latent space (must be 2 or 20) [2]"
 flags.DEFINE_integer("num_layers", 3, "Number of recurrent layers [3]")
 flags.DEFINE_float("init_learning_rate", 0.01, "initial learning rate [0.01]")
 flags.DEFINE_integer("mode", 0, "0 for training, 1 for testing [0]")
+flags.DEFINE_integer("epochs", 75, "Number of epochs [75]")
+flags.DEFINE_integer("save_every", 10, "Save every [10] epochs")
 flags.DEFINE_string("model_name", "out", "model name for prefix to checkpoint file [unnamed]")
 
 FLAGS = flags.FLAGS

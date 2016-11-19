@@ -29,11 +29,10 @@ class VariationalAutoencoder(object):
 		self.mnist 				   = input_data.read_data_sets('MNIST_data', one_hot=True)
 		self.input_dim 			   = self.mnist.train.images.shape[1]
 		self.N_z 				   = config.N_z
-		assert self.N_z == 2 or self.N_z == 20
-		self.epochs 			   = 75 if self.N_z == 2 else 10
+		self.epochs 			   = config.epochs
 		self.is_test 			   = config.mode == 1
 		
-		self.save_every 		   = 10 if self.epochs == 75 else 1
+		self.save_every 		   = config.save_every
 		self.model_name 		   = config.model_name
 		self.model_directory 	   = self.model_name
 		self.checkpoint_directory  = os.path.join(self.model_directory, "checkpoints")
