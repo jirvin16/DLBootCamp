@@ -24,7 +24,8 @@ class VariationalAutoencoder(object):
 		self.optimizer         	   = "Adagrad"
 		self.loss                  = None
 		self.optim 				   = None
-		self.logits 			   = None
+		self.encode_mu 			   = None
+		self.decode_mu 			   = None
 
 		self.mnist 				   = input_data.read_data_sets('MNIST_data', one_hot=True)
 		self.input_dim 			   = self.mnist.train.images.shape[1]
@@ -106,25 +107,25 @@ class VariationalAutoencoder(object):
 		for i in range(1, self.num_layers+1):
 			encode_h = tf.tanh(tf.matmul(encode_h, self.weights["W_encoder"][str(i)]) + self.weights["b_encoder"][str(i)])
 
-		encode_mu = tf.matmul(encode_h, self.weights["W_encoder"]["mu"]) + self.weights["b_encoder"]["mu"]
+		self.encode_mu = tf.matmul(encode_h, self.weights["W_encoder"]["mu"]) + self.weights["b_encoder"]["mu"]
 		encode_log_sigma_sq = tf.matmul(encode_h, self.weights["W_encoder"]["log_sigma_sq"]) + self.weights["b_encoder"]["log_sigma_sq"]
 		
 		eps = tf.random_normal([self.batch_size, self.N_z])
-		z = encode_mu + tf.mul(tf.sqrt(tf.exp(encode_log_sigma_sq)), eps)
+		z = self.encode_mu + tf.mul(tf.sqrt(tf.exp(encode_log_sigma_sq)), eps)
 
 		# Define decoder (generative network) operations (gaussian MLP)
 		decode_h = z
 		for i in range(1, self.num_layers+1):
 			decode_h = tf.tanh(tf.matmul(decode_h, self.weights["W_decoder"][str(i)]) + self.weights["b_decoder"][str(i)])
 
-		decode_mu = tf.sigmoid(tf.matmul(decode_h, self.weights["W_decoder"]["mu"]) + self.weights["b_decoder"]["mu"])
+		self.decode_mu = tf.sigmoid(tf.matmul(decode_h, self.weights["W_decoder"]["mu"]) + self.weights["b_decoder"]["mu"])
 
 		# Kullbach Leibler Divergence
-		KLD = -0.5 * tf.reduce_sum(1 + encode_log_sigma_sq - tf.square(encode_mu) - tf.exp(encode_log_sigma_sq), 1)
+		KLD = -0.5 * tf.reduce_sum(1 + encode_log_sigma_sq - tf.square(self.encode_mu) - tf.exp(encode_log_sigma_sq), 1)
 
 		# Reconstruction loss
-		reconstruction_loss = -tf.reduce_sum(self.batch * tf.log(1e-10 + decode_mu) + \
-											 (1-self.batch) * tf.log(1e-10 + 1 - decode_mu), 1)
+		reconstruction_loss = -tf.reduce_sum(self.batch * tf.log(1e-10 + self.decode_mu) + \
+											 (1-self.batch) * tf.log(1e-10 + 1 - self.decode_mu), 1)
 
 		self.loss = tf.reduce_mean(KLD + reconstruction_loss)
 
@@ -207,31 +208,50 @@ class VariationalAutoencoder(object):
 
 		# only load if in test mode (rather than cv)
 		if self.is_test:
+			import matplotlib.pyplot as plt
 			self.load()
 
-		test_loss = 0
+		test_loss   = 0
 		num_batches = 0.0
-		num_correct = 0.0
-		num_examples = 0.0
 		while self.mnist.test.epochs_completed < 1:
 
-			batch, _ = self.mnist.test.next_batch(self.batch_size)
-			
-			feed     = {self.batch: batch}
+			batch, _ 			  = self.mnist.test.next_batch(self.batch_size)	
+			feed 				  = {self.batch: batch}
+			loss, reconstructions = self.sess.run([self.loss, self.decode_mu], feed)
+			test_loss 		     += loss
 
-			loss, logits = self.sess.run([self.loss, self.logits], feed)
+			if self.is_test and num_batches == 0.0:
+		
+				num_samples = 6
+				plt.figure(figsize=(12,18))
+				for i in range(num_samples):
+					plt.subplot(num_samples, 2, 2 * i + 1)
+					plt.imshow(batch[i].reshape(28, 28), vmin=0, vmax=1)
+					plt.title("Input")
+					plt.colorbar()
+					plt.subplot(num_samples, 2, 2 * i + 2)
+					plt.imshow(reconstructions[i].reshape(28, 28), vmin=0, vmax=1)
+					plt.title("Reconstruction")
+					plt.colorbar()
 
-			test_loss += loss
-
-			predictions   = np.argmax(logits, 1)
-			num_correct  += np.sum(predictions == y_batch)
-			num_examples += predictions.shape[0]
+				plt.tight_layout()
+				plt.savefig(os.path.join(self.model_directory, "reconstructions.jpg"))
+				plt.close()
 
 			num_batches += 1.0
 
+		if self.is_test and self.N_z == 2:
+			x_batch, y_batch = self.mnist.test.next_batch(self.mnist.test.num_examples)
+			feed 			 = {self.batch: x_batch}
+			encode_mu,		 = self.sess.run([self.encode_mu], feed)
+			plt.figure(figsize=(12,18))
+			plt.scatter(encode_mu[:, 0], encode_mu[:, 1], c=np.argmax(y_batch, 1))
+			plt.colorbar()
+			plt.savefig(os.path.join(self.model_directory, "scatter.jpg"))
+			plt.close()
+		
 		state = {
 			"test_loss" : test_loss / num_batches,
-			"accuracy" : num_correct / num_examples
 		}
 
 		with open(self.outfile, 'a') as outfile:
@@ -239,7 +259,6 @@ class VariationalAutoencoder(object):
 			outfile.flush()
 
 		return test_loss / num_batches
-
 
 	def run(self):
 		if self.is_test:
