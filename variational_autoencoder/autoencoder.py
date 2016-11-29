@@ -26,12 +26,19 @@ class VariationalAutoencoder(object):
 		self.optim 				   = None
 		self.encode_mu 			   = None
 		self.decode_mu 			   = None
+		self.sample_mu 			   = None
 
 		self.mnist 				   = input_data.read_data_sets('MNIST_data', one_hot=True)
 		self.input_dim 			   = self.mnist.train.images.shape[1]
 		self.N_z 				   = config.N_z
 		self.epochs 			   = config.epochs
-		self.is_test 			   = config.mode == 1
+		self.is_test 			   = config.mode == 1 or config.mode == 2 or config.mode == 3
+		self.manifold_visualize    = config.mode == 2
+		self.scatter_visualize     = config.mode == 3
+		if self.manifold_visualize:
+			self.batch_size = 1
+		elif self.scatter_visualize:
+			self.batch_size = self.mnist.test.num_examples
 		
 		self.save_every 		   = config.save_every
 		self.model_name 		   = config.model_name
@@ -46,7 +53,9 @@ class VariationalAutoencoder(object):
 		self.num_classes		   = 10
 
 		# Model placeholders
-		self.batch 	       	  	   = tf.placeholder(tf.float32, shape=[self.batch_size, self.input_dim], name="batch")
+		# self.batch 	       	  	   = tf.placeholder(tf.float32, shape=[self.batch_size, self.input_dim], name="batch")
+		self.batch 	       	  	   = tf.placeholder(tf.float32, shape=[None, self.input_dim], name="batch")
+		self.Z 					   = tf.placeholder(tf.float32, shape=[None, self.N_z], name="Z")
 
 		if not os.path.isdir(self.model_directory):
 			os.makedirs(self.model_directory)
@@ -133,6 +142,11 @@ class VariationalAutoencoder(object):
 		if not self.is_test:
 			self.optim = tf.contrib.layers.optimize_loss(self.loss, None, self.current_learning_rate, self.optimizer, 
 														 	summaries=["learning_rate", "gradient_norm", "loss", "gradients"])
+		else:
+			sample_h = self.Z
+			for i in range(1, self.num_layers+1):
+				sample_h = tf.tanh(tf.matmul(sample_h, self.weights["W_decoder"][str(i)]) + self.weights["b_decoder"][str(i)])
+			self.sample_mu = tf.sigmoid(tf.matmul(sample_h, self.weights["W_decoder"]["mu"]) + self.weights["b_decoder"]["mu"])
 		
 		self.sess.run(tf.initialize_all_variables())
 
@@ -211,54 +225,77 @@ class VariationalAutoencoder(object):
 			import matplotlib.pyplot as plt
 			self.load()
 
-		test_loss   = 0
-		num_batches = 0.0
-		while self.mnist.test.epochs_completed < 1:
+		if not self.manifold_visualize and not self.scatter_visualize:
+			test_loss   = 0
+			num_batches = 0.0
+			while self.mnist.test.epochs_completed < 1:
 
-			batch, _ 			  = self.mnist.test.next_batch(self.batch_size)	
-			feed 				  = {self.batch: batch}
-			loss, reconstructions = self.sess.run([self.loss, self.decode_mu], feed)
-			test_loss 		     += loss
+				batch, _ 			  = self.mnist.test.next_batch(self.batch_size)	
+				feed 				  = {self.batch: batch}
+				loss, reconstructions = self.sess.run([self.loss, self.decode_mu], feed)
+				test_loss 		     += loss
 
-			if self.is_test and num_batches == 0.0:
+				# Reconstruction visualizations
+				if self.is_test and num_batches == 0.0:
+			
+					num_samples = 6
+					plt.figure(figsize=(12,18))
+					for i in range(num_samples):
+						plt.subplot(num_samples, 2, 2 * i + 1)
+						plt.imshow(batch[i].reshape(28, 28), vmin=0, vmax=1)
+						plt.title("Input")
+						plt.colorbar()
+						plt.subplot(num_samples, 2, 2 * i + 2)
+						plt.imshow(reconstructions[i].reshape(28, 28), vmin=0, vmax=1)
+						plt.title("Reconstruction")
+						plt.colorbar()
+
+					plt.tight_layout()
+					plt.savefig(os.path.join(self.model_directory, "reconstructions.jpg"))
+					plt.close()
+
+				num_batches += 1.0
+
+			state = {
+				"test_loss" : test_loss / num_batches,
+			}
+
+			with open(self.outfile, 'a') as outfile:
+				print(state, file=outfile)
+				outfile.flush()
+
+			return test_loss / num_batches
 		
-				num_samples = 6
-				plt.figure(figsize=(12,18))
-				for i in range(num_samples):
-					plt.subplot(num_samples, 2, 2 * i + 1)
-					plt.imshow(batch[i].reshape(28, 28), vmin=0, vmax=1)
-					plt.title("Input")
-					plt.colorbar()
-					plt.subplot(num_samples, 2, 2 * i + 2)
-					plt.imshow(reconstructions[i].reshape(28, 28), vmin=0, vmax=1)
-					plt.title("Reconstruction")
-					plt.colorbar()
+		if self.manifold_visualize and self.N_z == 2:
+			# Manifold visualization
+			x_dim 	 = 20
+			y_dim 	 = 20
+			x_values = np.linspace(-3, 3, 20)
+			y_values = np.linspace(-3, 3, 20)
+			canvas   = np.empty((28*y_dim, 28*x_dim))
+			for i, x in enumerate(x_values):
+				for j, y in enumerate(y_values):
+					feed 	   = {self.Z: np.array([[x, y]])}
+					sample_mu, = self.sess.run([self.sample_mu], feed)
+					canvas[(x_dim-i-1)*28:(x_dim-i)*28, j*28:(j+1)*28] = sample_mu[0].reshape(28, 28)
+			plt.figure(figsize=(12, 18))        
+			Xi, Yi = np.meshgrid(x_values, y_values)
+			plt.imshow(canvas, origin="upper")
+			plt.title("MNIST Manifold")
+			plt.tight_layout()
+			plt.savefig(os.path.join(self.model_directory, "manifold.jpg"))
+			plt.close()
 
-				plt.tight_layout()
-				plt.savefig(os.path.join(self.model_directory, "reconstructions.jpg"))
-				plt.close()
-
-			num_batches += 1.0
-
-		if self.is_test and self.N_z == 2:
+		if self.scatter_visualize and self.N_z == 2:
+			# Scatter plot
 			x_batch, y_batch = self.mnist.test.next_batch(self.mnist.test.num_examples)
-			feed 			 = {self.batch: x_batch}
-			encode_mu,		 = self.sess.run([self.encode_mu], feed)
+			feed 	   	  	 = {self.batch: x_batch}
+			encode_mu, 	  	 = self.sess.run([self.encode_mu], feed)
 			plt.figure(figsize=(12,18))
 			plt.scatter(encode_mu[:, 0], encode_mu[:, 1], c=np.argmax(y_batch, 1))
 			plt.colorbar()
 			plt.savefig(os.path.join(self.model_directory, "scatter.jpg"))
 			plt.close()
-		
-		state = {
-			"test_loss" : test_loss / num_batches,
-		}
-
-		with open(self.outfile, 'a') as outfile:
-			print(state, file=outfile)
-			outfile.flush()
-
-		return test_loss / num_batches
 
 	def run(self):
 		if self.is_test:
