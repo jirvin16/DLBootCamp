@@ -2,6 +2,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+from tensorflow.python.ops import rnn
 import numpy as np
 from length_analysis import process_files
 
@@ -26,6 +27,7 @@ class AttentionNN(object):
 		self.grad_max_norm 		   = config.grad_max_norm
 		self.use_attention 		   = config.use_attention
 		self.dropout 			   = config.dropout
+		self.optimizer 			   = config.optimizer
 		self.loss                  = None
 		self.optim 				   = None
 
@@ -122,18 +124,26 @@ class AttentionNN(object):
 
 			self.source_embed     = tf.get_variable("source_embed", shape=[self.vocab_size, self.embedding_dim],
 													initializer=initializer)
-			self.source_proj      = tf.get_variable("source_proj", shape=[self.embedding_dim, self.hidden_dim],
+			self.bidir_proj       = tf.get_variable("bidir_proj", shape=[2*self.hidden_dim, self.hidden_dim],
 													initializer=initializer)
-			self.source_proj_bias = tf.get_variable("source_proj_bias", shape=[self.hidden_dim],
+			self.bidir_proj_bias  = tf.get_variable("bidir_proj_bias", shape=[self.hidden_dim],
 													initializer=initializer)
-			encode_lstm           = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+			encode_lstm_fw        = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 																 state_is_tuple=True)
-			encode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm, 
+			encode_lstm_fw 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm_fw, 
 															      output_keep_prob=1-self.dropout_var)
-			self.encoder 		  = tf.nn.rnn_cell.MultiRNNCell([encode_lstm] * self.num_layers, 
-														        state_is_tuple=True)
-
-			source_embeddings 	  = tf.split(1, self.max_size, tf.nn.embedding_lookup(self.source_embed, self.source_batch))
+			encode_lstm_bw        = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+																 state_is_tuple=True)
+			encode_lstm_bw 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm_bw, 
+															      output_keep_prob=1-self.dropout_var)
+			if self.num_layers > 1:
+				
+				encode_lstm       = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+																 state_is_tuple=True)
+				encode_lstm 	  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm, 
+															      output_keep_prob=1-self.dropout_var)
+				self.encoder 	  = tf.nn.rnn_cell.MultiRNNCell([encode_lstm] * (self.num_layers - 1), 
+															    state_is_tuple=True)
 			
 		with tf.variable_scope("decoding"):
 
@@ -143,12 +153,22 @@ class AttentionNN(object):
 													initializer=initializer)
 			self.target_proj_bias = tf.get_variable("target_proj_bias", shape=[self.hidden_dim], 
 													initializer=initializer)
-			decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+			# decode_lstm_fw 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+			# 													 state_is_tuple=True)
+			# decode_lstm_fw 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm_fw, 
+			# 													  output_keep_prob=1-self.dropout_var)
+			# decode_lstm_bw 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+			# 													 state_is_tuple=True)
+			# decode_lstm_bw 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm_bw, 
+			# 													  output_keep_prob=1-self.dropout_var)
+			# CHANGE THIS TO >
+			if self.num_layers == 1:
+				decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 																 state_is_tuple=True)
-			decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
+				decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
 																  output_keep_prob=1-self.dropout_var)
-			self.decoder 		  = tf.nn.rnn_cell.MultiRNNCell([decode_lstm] * self.num_layers, 
-																 state_is_tuple=True)
+				self.decoder 		  = tf.nn.rnn_cell.MultiRNNCell([decode_lstm] * (self.num_layers),  # CHANGE THIS TO -1
+																	state_is_tuple=True)
 
 			self.W_embed 		  = tf.get_variable("W_embed", shape=[self.hidden_dim, self.embedding_dim], 
 										   			initializer=initializer)
@@ -174,20 +194,27 @@ class AttentionNN(object):
 				test_indices = [self.vocab_index["<s>"] for _ in range(self.batch_size)]
 				test_embeddings = tf.nn.embedding_lookup(self.target_embed, test_indices)
 
-		initial_hidden_state = self.encoder.zero_state(self.batch_size, dtype=tf.float32)
-		hidden_state = initial_hidden_state
-		source_hidden_states = []
-
 		with tf.variable_scope("encoding"):
-			
+			source_embeddings = tf.split(1, self.max_size, tf.nn.embedding_lookup(self.source_embed, self.source_batch))
+			source_embeddings = [tf.squeeze(source_embeddings[t], [1]) for t in range(self.max_size)]
+			outputs, output_state_fw, output_state_bw = rnn.bidirectional_rnn(encode_lstm_fw, encode_lstm_bw, source_embeddings, dtype=tf.float32)
+			source_hidden_states = []
 			for t in xrange(self.max_size):
 				if t >= 1:
 					tf.get_variable_scope().reuse_variables()
-				
-				projection = tf.matmul(tf.squeeze(source_embeddings[t], [1]), self.source_proj) + self.source_proj_bias
-				
-				output, hidden_state = self.encoder(projection, hidden_state)
-				source_hidden_states.append(output)
+				projection = tf.matmul(outputs[t], self.bidir_proj) + self.bidir_proj_bias
+				source_hidden_states.append(projection)
+			
+			if self.num_layers > 1:
+				initial_hidden_state = self.encoder.zero_state(self.batch_size, dtype=tf.float32)
+				hidden_state = initial_hidden_state
+				new_source_hidden_states = []
+				for t in xrange(self.max_size):
+					if t >= 1:
+						tf.get_variable_scope().reuse_variables()
+					output, hidden_state = self.encoder(source_hidden_states[t], hidden_state)
+					new_source_hidden_states.append(output)
+				source_hidden_states = new_source_hidden_states
 
 		packed_source_hidden_states = tf.pack(source_hidden_states)
 
@@ -199,6 +226,10 @@ class AttentionNN(object):
 			
 		with tf.variable_scope("decoding"):
 
+			# iterate over time, computing bidirectional decoder lstms (with test cases)
+			# pass into a num_layers - 1 decoder (not need for test cases?)
+			# only do attention on top layer
+
 			for t in xrange(self.max_size):
 				if t >= 1:
 					tf.get_variable_scope().reuse_variables()
@@ -208,8 +239,10 @@ class AttentionNN(object):
 				else:
 					projection = tf.matmul(tf.squeeze(test_embeddings), self.target_proj) + self.target_proj_bias
 
-				# First h is h output by encoder
-				output, hidden_state = self.decoder(projection, hidden_state)
+				# First h is no longer h output by encoder
+				# zero out that hidden state as in paper
+				initial_hidden_state = self.decoder.zero_state(self.batch_size, dtype=tf.float32)
+				output, hidden_state = self.decoder(projection, initial_hidden_state)
 
 				if self.use_attention:
 
@@ -255,7 +288,7 @@ class AttentionNN(object):
 
 		# only optimize if training
 		if not self.is_test and not self.is_sample:
-			self.optim = tf.contrib.layers.optimize_loss(self.loss, None, self.current_learning_rate, "SGD", clip_gradients=self.grad_max_norm, 
+			self.optim = tf.contrib.layers.optimize_loss(self.loss, None, self.current_learning_rate, self.optimizer, clip_gradients=self.grad_max_norm, 
 														 summaries=["learning_rate", "gradient_norm", "loss", "gradients"])
 		
 		self.sess.run(tf.initialize_all_variables())

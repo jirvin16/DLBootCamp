@@ -27,6 +27,7 @@ flags.DEFINE_integer("save_every", 5, "Save every [5] epochs")
 flags.DEFINE_boolean("sample", False, "Use sample data [False]")
 flags.DEFINE_string("model_name", "out", "model name for prefix to checkpoint file [unnamed]")
 flags.DEFINE_boolean("use_unilingual", False, "use unilingual french -> english for testing wordpiece / model")
+flags.DEFINE_string("optimizer", "SGD", "Gradient descent optimizer [SGD]")
 
 FLAGS = flags.FLAGS
 
