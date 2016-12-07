@@ -153,22 +153,13 @@ class AttentionNN(object):
 													initializer=initializer)
 			self.target_proj_bias = tf.get_variable("target_proj_bias", shape=[self.hidden_dim], 
 													initializer=initializer)
-			# decode_lstm_fw 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
-			# 													 state_is_tuple=True)
-			# decode_lstm_fw 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm_fw, 
-			# 													  output_keep_prob=1-self.dropout_var)
-			# decode_lstm_bw 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
-			# 													 state_is_tuple=True)
-			# decode_lstm_bw 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm_bw, 
-			# 													  output_keep_prob=1-self.dropout_var)
-			# CHANGE THIS TO >
-			if self.num_layers == 1:
-				decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
-																 state_is_tuple=True)
-				decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
-																  output_keep_prob=1-self.dropout_var)
-				self.decoder 		  = tf.nn.rnn_cell.MultiRNNCell([decode_lstm] * (self.num_layers),  # CHANGE THIS TO -1
-																	state_is_tuple=True)
+
+			decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+															 state_is_tuple=True)
+			decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
+															  output_keep_prob=1-self.dropout_var)
+			self.decoder 		  = tf.nn.rnn_cell.MultiRNNCell([decode_lstm] * self.num_layers,
+																state_is_tuple=True)
 
 			self.W_embed 		  = tf.get_variable("W_embed", shape=[self.hidden_dim, self.embedding_dim], 
 										   			initializer=initializer)
@@ -200,8 +191,6 @@ class AttentionNN(object):
 			outputs, output_state_fw, output_state_bw = rnn.bidirectional_rnn(encode_lstm_fw, encode_lstm_bw, source_embeddings, dtype=tf.float32)
 			source_hidden_states = []
 			for t in xrange(self.max_size):
-				if t >= 1:
-					tf.get_variable_scope().reuse_variables()
 				projection = tf.matmul(outputs[t], self.bidir_proj) + self.bidir_proj_bias
 				source_hidden_states.append(projection)
 			
@@ -225,10 +214,6 @@ class AttentionNN(object):
 		alignments = []
 			
 		with tf.variable_scope("decoding"):
-
-			# iterate over time, computing bidirectional decoder lstms (with test cases)
-			# pass into a num_layers - 1 decoder (not need for test cases?)
-			# only do attention on top layer
 
 			for t in xrange(self.max_size):
 				if t >= 1:

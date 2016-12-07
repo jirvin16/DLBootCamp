@@ -13,7 +13,7 @@ flags = tf.app.flags
 flags.DEFINE_integer("max_size", 30, "Maximum sentence length [30]")
 flags.DEFINE_integer("batch_size", 128, "Number of examples in minibatch [128]")
 flags.DEFINE_integer("random_seed", 42, "Value of random seed [42]")
-flags.DEFINE_integer("epochs", 12, "Number of epochs to run [12]")
+flags.DEFINE_integer("epochs", 30, "Number of epochs to run [30]")
 flags.DEFINE_integer("hidden_dim", 1000, "Size of hidden dimension [1000]")
 flags.DEFINE_integer("embedding_dim", 256, "Size of embedding dimension [1000]")
 flags.DEFINE_integer("num_layers", 2, "Number of recurrent layers [2]")
