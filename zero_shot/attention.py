@@ -12,6 +12,7 @@ import os
 import time
 import sys
 from pprint import pprint
+import string
 
 
 class AttentionNN(object):
@@ -153,7 +154,14 @@ class AttentionNN(object):
 													initializer=initializer)
 			self.target_proj_bias = tf.get_variable("target_proj_bias", shape=[self.hidden_dim], 
 													initializer=initializer)
-
+			# self.W_sh 			  = tf.get_variable("W_sh", shape=[2*self.hidden_dim, self.hidden_dim],
+			# 										initializer=initializer)
+			# self.b_sh 			  = tf.get_variable("b_sh", shape=[self.hidden_dim],
+			# 										initializer=initializer)
+			# self.W_sc 			  = tf.get_variable("W_sc", shape=[2*self.hidden_dim, self.hidden_dim],
+			# 										initializer=initializer)
+			# self.b_sc 			  = tf.get_variable("b_sc", shape=[self.hidden_dim],
+			# 										initializer=initializer)
 			decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 															 state_is_tuple=True)
 			decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
@@ -180,14 +188,13 @@ class AttentionNN(object):
 			# feed in previous outputs if testing or sampling
 			# if training, feed in true values
 			if not self.is_test and not self.is_sample:
-				target_embeddings = tf.split(1, self.max_size, tf.nn.embedding_lookup(self.target_embed, self.target_batch))
+				target_embeddings = tf.unpack(tf.nn.embedding_lookup(self.target_embed, self.target_batch), axis=1)
 			else:
 				test_indices = [self.vocab_index["<s>"] for _ in range(self.batch_size)]
 				test_embeddings = tf.nn.embedding_lookup(self.target_embed, test_indices)
 
 		with tf.variable_scope("encoding"):
-			source_embeddings = tf.split(1, self.max_size, tf.nn.embedding_lookup(self.source_embed, self.source_batch))
-			source_embeddings = [tf.squeeze(source_embeddings[t], [1]) for t in range(self.max_size)]
+			source_embeddings = tf.unpack(tf.nn.embedding_lookup(self.source_embed, self.source_batch), axis=1)
 			outputs, output_state_fw, output_state_bw = rnn.bidirectional_rnn(encode_lstm_fw, encode_lstm_bw, source_embeddings, dtype=tf.float32)
 			source_hidden_states = []
 			for t in xrange(self.max_size):
@@ -220,13 +227,14 @@ class AttentionNN(object):
 					tf.get_variable_scope().reuse_variables()
 				
 				if not self.is_test and not self.is_sample:
-					projection = tf.matmul(tf.squeeze(target_embeddings[t]), self.target_proj) + self.target_proj_bias
+					projection = tf.matmul(target_embeddings[t], self.target_proj) + self.target_proj_bias
 				else:
-					projection = tf.matmul(tf.squeeze(test_embeddings), self.target_proj) + self.target_proj_bias
+					projection = tf.matmul(test_embeddings, self.target_proj) + self.target_proj_bias
 
-				# First h is no longer h output by encoder
-				# zero out that hidden state as in paper
 				initial_hidden_state = self.decoder.zero_state(self.batch_size, dtype=tf.float32)
+				# initial_hidden_state_c = tf.matmul(tf.concat(1, [output_state_fw[0], output_state_bw[0]]), self.W_sc) + self.b_sc
+				# initial_hidden_state_h = tf.matmul(tf.concat(1, [output_state_fw[1], output_state_bw[1]]), self.W_sh) + self.b_sh
+				# initial_hidden_state = tf.nn.rnn_cell.LSTMStateTuple(initial_hidden_state_c, initial_hidden_state_h)
 				output, hidden_state = self.decoder(projection, initial_hidden_state)
 
 				if self.use_attention:
@@ -262,8 +270,7 @@ class AttentionNN(object):
 		if not self.is_sample:
 			logits = scores[:-1]
 			targets = tf.split(1, self.max_size, self.target_batch)[1:]
-			sequence_loss_weights = [tf.squeeze(x) for x in tf.split(1, self.sequence_loss_weights.get_shape()[1], self.sequence_loss_weights)]
-			# sequence_loss_weights = [tf.ones([self.batch_size]) for _ in xrange(self.max_size - 1)]
+			sequence_loss_weights = tf.unpack(self.sequence_loss_weights, axis=1)
 			self.loss = tf.nn.seq2seq.sequence_loss(logits, targets, sequence_loss_weights, average_across_timesteps=True)
 		
 		# if sampling or testing, compute probabilities for bleu score
@@ -430,7 +437,7 @@ class AttentionNN(object):
 		with open(self.predictions_file, 'w') as predictions, open(self.truth_file, 'w') as truth:
 
 			for source_batch, target_batch, _ in data.data_iterator(self.test_source_data_path, self.test_target_data_path, \
-														 self.vocab_index, self.max_size, self.batch_size):
+														 			self.vocab_index, self.max_size, self.batch_size):
 
 				# unused
 				psuedo_sequence_loss_weights = [[-1 for _ in range(self.max_size - 1)] for _ in range(len(source_batch))]
@@ -454,7 +461,7 @@ class AttentionNN(object):
 					target_sentence = []
 					k = 0
 					for i in target_indices:
-						next_word   = self.target_index_vocab[i]
+						next_word   = self.index_vocab[i]
 						if next_word != "</s>":
 							target_sentence.append(next_word)
 							if self.is_sample:
@@ -468,14 +475,34 @@ class AttentionNN(object):
 						print("SENTENCE ", end="", file=predictions)
 						predictions.flush()
 
-					print(" ".join(target_sentence), file=predictions)
+					merged_sentence = []
+					cur_word = ""
+					for word in target_sentence:
+						if word[:2] == "__":
+							merged_sentence.append(cur_word)
+							cur_word = "" + word[2:]
+						else:
+							cur_word += word
+					print(" ".join(merged_sentence).strip(), file=predictions)
+					# print(" ".join(target_sentence), file=predictions)
 					predictions.flush()
 
 					if self.is_test:
 						true_indices  = target_batch[j]
-						true_sentence = [self.target_index_vocab[i] for i in true_indices \
-										 if self.target_index_vocab[i] not in ["<pad>", "</s>", "<s>"]]
-						print(" ".join(true_sentence), file=truth)
+						true_sentence = [self.index_vocab[i] for i in true_indices \
+										 if self.index_vocab[i] not in ["<pad>", "</s>", "<s>"]]
+
+						merged_sentence = []
+						cur_word = ""
+						for word in true_sentence:
+							if word[:2] == "__":
+								merged_sentence.append(cur_word)
+								cur_word = "" + word[2:]
+							else:
+								cur_word += word
+						print(" ".join(merged_sentence).strip(), file=truth)
+						# with open("test.txt", 'a') as test:
+						# 	print(" ".join(true_sentence), file=test)
 						truth.flush()
 
 					# elif self.is_sample:

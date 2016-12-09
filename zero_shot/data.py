@@ -56,7 +56,7 @@ def data_iterator(source_data_path, target_data_path, vocab, max_size, batch_siz
                 source_data.append(pre_pad(source_text, vocab["<pad>"], max_size))
                 target_data.append(post_pad(target_text, vocab["<pad>"], max_size))
                 # ignore first word when computing length
-                target_lengths.append(len(split_target))
+                target_lengths.append(len(target_text) - 1)
                 next_batch += 1
 
         if next_batch - prev_batch == batch_size:

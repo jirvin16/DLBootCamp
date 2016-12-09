@@ -15,7 +15,7 @@ flags.DEFINE_integer("batch_size", 128, "Number of examples in minibatch [128]")
 flags.DEFINE_integer("random_seed", 42, "Value of random seed [42]")
 flags.DEFINE_integer("epochs", 30, "Number of epochs to run [30]")
 flags.DEFINE_integer("hidden_dim", 1000, "Size of hidden dimension [1000]")
-flags.DEFINE_integer("embedding_dim", 256, "Size of embedding dimension [1000]")
+flags.DEFINE_integer("embedding_dim", 256, "Size of embedding dimension [256]")
 flags.DEFINE_integer("num_layers", 2, "Number of recurrent layers [2]")
 flags.DEFINE_float("init_learning_rate", 1., "initial learning rate [1]")
 flags.DEFINE_float("grad_max_norm", 5., "gradient max norm [1]")
@@ -26,7 +26,7 @@ flags.DEFINE_boolean("validate", True, "True for cross validation, False otherwi
 flags.DEFINE_integer("save_every", 5, "Save every [5] epochs")
 flags.DEFINE_boolean("sample", False, "Use sample data [False]")
 flags.DEFINE_string("model_name", "out", "model name for prefix to checkpoint file [unnamed]")
-flags.DEFINE_boolean("use_unilingual", False, "use unilingual french -> english for testing wordpiece / model")
+flags.DEFINE_boolean("use_unilingual", False, "use unilingual french -> english for testing wordpiece / model [False]")
 flags.DEFINE_string("optimizer", "SGD", "Gradient descent optimizer [SGD]")
 
 FLAGS = flags.FLAGS
