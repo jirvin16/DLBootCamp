@@ -1,19 +1,70 @@
-actual_word = ['e', 'x', 'p', 'l', 'i', 'c', 'i', 't', 'l', 'y']
-joined_word = "".join(actual_word)
-best_merges = ["li", "ic", "ly", "it", "xp", "ex"]
-while True:
-	merge_found = False
-	for merge in best_merges:
-		if merge in joined_word:
-			# replace tokens in string with \t
-			index = joined_word.index(merge)
-			joined_word = joined_word[:index] + "\t" * len(merge) + joined_word[index+len(merge):]
-			# replace first token with merge, other tokens with \t
-			actual_word[index] = merge
-			actual_word[index+1:index+len(merge)] = "\t" * (len(merge) - 1)
-			merge_found = True
-			break
-	# if no merges found, we are done
-	if not merge_found:
-		actual_word = filter(lambda a: a != "\t", actual_word)
-		break
+from __future__ import division
+from __future__ import print_function
+
+
+def pre_pad(lst, pad_elt, max_len):
+    nlst = [pad_elt]*max_len
+    nlst[(max_len - len(lst)):] = lst
+    return nlst
+
+
+def post_pad(lst, pad_elt, max_len):
+    nlst = [pad_elt]*max_len
+    nlst[:len(lst)] = lst
+    return nlst
+
+def read_vocabulary(data_path):
+	vocab_index = {}
+	index_vocab = {}
+	i = 0
+	with open(data_path) as infile:
+		for line in infile:
+			for word in line.split():
+				if word not in vocab_index:
+					vocab_index[word] = i
+					index_vocab[i] = word
+					i += 1
+	tokens = ["<pad>", "<s>", "</s>", "<unk>"]
+	for j in range(len(tokens)):
+		vocab_index[tokens[j]] = i + j
+		index_vocab[i + j] = tokens[j]
+
+	return vocab_index, index_vocab
+
+def data_iterator(source_data_path, target_data_path, vocab, max_size, batch_size):
+	with open(source_data_path, "rb") as f_in, open(target_data_path, 'rb') as f_out:
+		cur_size       = 0
+		source_data    = []
+		target_data    = []
+		target_lengths = []
+		for i, (lsource, ltarget) in enumerate(zip(f_in, f_out)):
+
+			if cur_size == batch_size:
+				cur_size       = 0
+				yield source_data, target_data, target_lengths
+				source_data    = []
+				target_data    = []
+				target_lengths = []
+
+			split_source = lsource.replace("\n", "").split()
+			split_target = ltarget.replace("\n", "").split()
+			if len(split_source) + 1 <= max_size and len(split_target) + 2 <= max_size:
+
+				source_text = [vocab[w] if w in vocab else vocab["<unk>"] for w in split_source][::-1] + [vocab["</s>"]]
+				target_text = [vocab["<s>"]] + [vocab[w] if w in vocab else vocab["<unk>"] for w in split_target] + [vocab["</s>"]]
+				source_data.append(pre_pad(source_text, vocab["<pad>"], max_size))
+				target_data.append(post_pad(target_text, vocab["<pad>"], max_size))
+				# ignore first word when computing length
+				target_lengths.append(len(target_text) - 1)
+				cur_size += 1
+
+		if cur_size == batch_size:
+			yield source_data, target_data, target_lengths
+
+vocab_index, index_vocab = read_vocabulary("/deep/group/dlbootcamp/jirvin16/small_sample/segmented_all")
+x = data_iterator("/deep/group/dlbootcamp/jirvin16/small_sample/test.fr", "/deep/group/dlbootcamp/jirvin16/small_sample/test.de", vocab_index, 150, 2)
+for s, t, l in x:
+	print(s)
+	print(t)
+	print(l)
+

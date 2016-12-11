@@ -33,18 +33,19 @@ def read_vocabulary(data_path):
 
 def data_iterator(source_data_path, target_data_path, vocab, max_size, batch_size):
     with open(source_data_path, "rb") as f_in, open(target_data_path, 'rb') as f_out:
-        prev_batch     = 0
-        next_batch     = 0
+        cur_size       = 0
         source_data    = []
         target_data    = []
+        source_lengths = []
         target_lengths = []
         for i, (lsource, ltarget) in enumerate(zip(f_in, f_out)):
 
-            if next_batch - prev_batch == batch_size:
-                prev_batch = next_batch
-                yield source_data, target_data, target_lengths
-                source_data = []
-                target_data = []
+            if cur_size == batch_size:
+                cur_size       = 0
+                yield source_data, target_data, source_lengths, target_lengths
+                source_data    = []
+                target_data    = []
+                source_lengths = []
                 target_lengths = []
 
             split_source = lsource.replace("\n", "").split()
@@ -53,12 +54,13 @@ def data_iterator(source_data_path, target_data_path, vocab, max_size, batch_siz
 
                 source_text = [vocab[w] if w in vocab else vocab["<unk>"] for w in split_source][::-1] + [vocab["</s>"]]
                 target_text = [vocab["<s>"]] + [vocab[w] if w in vocab else vocab["<unk>"] for w in split_target] + [vocab["</s>"]]
-                source_data.append(pre_pad(source_text, vocab["<pad>"], max_size))
+                source_data.append(post_pad(source_text, vocab["<pad>"], max_size))
                 target_data.append(post_pad(target_text, vocab["<pad>"], max_size))
-                # ignore first word when computing length
-                target_lengths.append(len(target_text) - 1)
-                next_batch += 1
+                source_lengths.append(len(source_text))
+                # -1 taken care of in tensorflow code
+                target_lengths.append(len(target_text))
+                cur_size += 1
 
-        if next_batch - prev_batch == batch_size:
-            yield source_data, target_data, target_lengths
+        if cur_size == batch_size:
+            yield source_data, target_data, source_lengths, target_lengths
                 

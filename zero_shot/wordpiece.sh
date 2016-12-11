@@ -1,4 +1,5 @@
-python learn_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -o /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -s 10000
+#!/bin/sh
+python learn_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -o /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -s 8000
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/train.fr_en -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/train.fr_en
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/valid.fr_en -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/valid.fr_en
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/test.fr -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/test.fr
@@ -8,14 +9,14 @@ python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/test.de -c /deep/gro
 
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/segmented_all
 
-# For french-english small pipeline
-mkdir /deep/group/dlbootcamp/jirvin16/final_sample/
-python learn_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/all -o /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -s 5000
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/train.fr -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/train.fr
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/valid.fr -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/valid.fr
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/test.fr -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/test.fr
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/train.en -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/train.en
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/valid.en -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/valid.en
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/test.en -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/test.en
+# # For french-english small pipeline
+# mkdir /deep/group/dlbootcamp/jirvin16/final_unilingual/
+# python learn_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/all -o /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -s 5000
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/train.fr -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/train.fr
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/valid.fr -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/valid.fr
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/test.fr -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/test.fr
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/train.en -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/train.en
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/valid.en -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/valid.en
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/test.en -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/test.en
 
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/sample/all -c /deep/group/dlbootcamp/jirvin16/final_sample/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_sample/segmented_all
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/unilingual/all -c /deep/group/dlbootcamp/jirvin16/final_unilingual/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_unilingual/segmented_all

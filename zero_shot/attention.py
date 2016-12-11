@@ -26,11 +26,13 @@ class AttentionNN(object):
 		self.epochs                = config.epochs
 		self.current_learning_rate = config.init_learning_rate
 		self.grad_max_norm 		   = config.grad_max_norm
-		self.use_attention 		   = config.use_attention
+		self.attention 		   	   = config.attention
 		self.dropout 			   = config.dropout
+		self.bidirectional 		   = config.bidirectional
 		self.optimizer 			   = config.optimizer
 		self.loss                  = None
 		self.optim 				   = None
+		self.debug 				   = None
 
 		self.data_directory 	   = "/deep/group/dlbootcamp/jirvin16/final_data/"
 		self.is_test 			   = config.mode == 1
@@ -45,8 +47,8 @@ class AttentionNN(object):
 		self.checkpoint_directory  = os.path.join(self.model_directory, "checkpoints")
 		
 		# Dimensions and initialization parameters
-		self.init_min              = -0.1
-		self.init_max 		       = 0.1
+		self.init_min              = -0.04
+		self.init_max 		       = 0.04
 		self.hidden_dim 	       = config.hidden_dim
 		self.embedding_dim         = config.embedding_dim		
 		self.num_layers 	       = config.num_layers
@@ -55,7 +57,8 @@ class AttentionNN(object):
 		self.source_batch 	       = tf.placeholder(tf.int32, shape=[self.batch_size, self.max_size], name="source_batch")
 		self.target_batch 	       = tf.placeholder(tf.int32, shape=[self.batch_size, self.max_size], name="target_batch")
 		self.dropout_var 	       = tf.placeholder(tf.float32, name="dropout_var")
-		self.sequence_loss_weights = tf.placeholder(tf.float32, shape=[self.batch_size, self.max_size - 1], name="sequence_loss_weights")
+		self.source_lengths 	   = tf.placeholder(tf.int32, shape=[self.batch_size], name="source_lengths")
+		self.target_lengths 	   = tf.placeholder(tf.int32, shape=[self.batch_size], name="target_lengths")
 		
 		if self.is_test:
 			self.dropout = 0
@@ -86,21 +89,21 @@ class AttentionNN(object):
 
 		# Data paths
 		if config.sample:
-			sample_prefix 		= "small_sample."
-		else:
-			sample_prefix 		= ""
-		if config.use_unilingual:
-			self.data_directory = "/deep/group/dlbootcamp/jirvin16/final_sample/"
+			self.data_directory = "/deep/group/dlbootcamp/jirvin16/small_sample/"
+
+		if config.unilingual:
+			self.data_directory = "/deep/group/dlbootcamp/jirvin16/final_unlingual/"
 			source_suffix 	 	= "fr"
 			target_suffix 	 	= "en"
 			test_target_suffix  = "en"
+
 		else:
 			source_suffix 	 	= "fr_en"
 			target_suffix 	    = "en_de"
 			test_target_suffix  = "de"
 
-		self.train_source_data_path    = os.path.join(self.data_directory, sample_prefix + "train." + source_suffix)
-		self.train_target_data_path    = os.path.join(self.data_directory, sample_prefix + "train." + target_suffix)
+		self.train_source_data_path    = os.path.join(self.data_directory, "train." + source_suffix)
+		self.train_target_data_path    = os.path.join(self.data_directory, "train." + target_suffix)
 		if self.is_test:
 			self.test_source_data_path = os.path.join(self.data_directory, "test.fr")
 			self.test_target_data_path = os.path.join(self.data_directory, "test." + test_target_suffix)
@@ -111,8 +114,8 @@ class AttentionNN(object):
 			# unused
 			self.test_target_data_path = os.path.join(self.model_directory, "example.txt")
 		else:
-			self.test_source_data_path = os.path.join(self.data_directory, sample_prefix + "valid." + source_suffix)
-			self.test_target_data_path = os.path.join(self.data_directory, sample_prefix + "valid." + target_suffix)
+			self.test_source_data_path = os.path.join(self.data_directory, "valid." + source_suffix)
+			self.test_target_data_path = os.path.join(self.data_directory, "valid." + target_suffix)
 
 
 		self.vocab_index, self.index_vocab = data.read_vocabulary(os.path.join(self.data_directory, "segmented_all"))
@@ -125,27 +128,33 @@ class AttentionNN(object):
 
 			self.source_embed     = tf.get_variable("source_embed", shape=[self.vocab_size, self.embedding_dim],
 													initializer=initializer)
-			self.bidir_proj       = tf.get_variable("bidir_proj", shape=[2*self.hidden_dim, self.hidden_dim],
-													initializer=initializer)
-			self.bidir_proj_bias  = tf.get_variable("bidir_proj_bias", shape=[self.hidden_dim],
-													initializer=initializer)
-			encode_lstm_fw        = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
-																 state_is_tuple=True)
-			encode_lstm_fw 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm_fw, 
-															      output_keep_prob=1-self.dropout_var)
-			encode_lstm_bw        = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
-																 state_is_tuple=True)
-			encode_lstm_bw 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm_bw, 
-															      output_keep_prob=1-self.dropout_var)
-			if self.num_layers > 1:
+			if self.bidirectional:
+
+				self.bidir_proj       = tf.get_variable("bidir_proj", shape=[2*self.hidden_dim, self.hidden_dim],
+														initializer=initializer)
+				self.bidir_proj_bias  = tf.get_variable("bidir_proj_bias", shape=[self.hidden_dim],
+														initializer=initializer)
+				encode_lstm_fw        = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+																	 state_is_tuple=True)
+				encode_lstm_fw 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm_fw, 
+																      output_keep_prob=1-self.dropout_var)
+				encode_lstm_bw        = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+																	 state_is_tuple=True)
+				encode_lstm_bw 		  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm_bw, 
+																      output_keep_prob=1-self.dropout_var)
+			else:
 				
-				encode_lstm       = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+				encode_lstm1       = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 																 state_is_tuple=True)
-				encode_lstm 	  = tf.nn.rnn_cell.DropoutWrapper(encode_lstm, 
+				encode_lstm1 	   = tf.nn.rnn_cell.DropoutWrapper(encode_lstm1, 
 															      output_keep_prob=1-self.dropout_var)
-				self.encoder 	  = tf.nn.rnn_cell.MultiRNNCell([encode_lstm] * (self.num_layers - 1), 
-															    state_is_tuple=True)
-			
+			if self.num_layers == 2:
+
+				encode_lstm2       = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
+															 	  state_is_tuple=True)
+				encode_lstm2 	   = tf.nn.rnn_cell.DropoutWrapper(encode_lstm2, 
+														     	  output_keep_prob=1-self.dropout_var)
+
 		with tf.variable_scope("decoding"):
 
 			self.target_embed 	  = tf.get_variable("target_embed", shape=[self.vocab_size, self.embedding_dim], 
@@ -154,21 +163,12 @@ class AttentionNN(object):
 													initializer=initializer)
 			self.target_proj_bias = tf.get_variable("target_proj_bias", shape=[self.hidden_dim], 
 													initializer=initializer)
-			# self.W_sh 			  = tf.get_variable("W_sh", shape=[2*self.hidden_dim, self.hidden_dim],
-			# 										initializer=initializer)
-			# self.b_sh 			  = tf.get_variable("b_sh", shape=[self.hidden_dim],
-			# 										initializer=initializer)
-			# self.W_sc 			  = tf.get_variable("W_sc", shape=[2*self.hidden_dim, self.hidden_dim],
-			# 										initializer=initializer)
-			# self.b_sc 			  = tf.get_variable("b_sc", shape=[self.hidden_dim],
-			# 										initializer=initializer)
 			decode_lstm 		  = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_dim, 
 															 state_is_tuple=True)
 			decode_lstm 		  = tf.nn.rnn_cell.DropoutWrapper(decode_lstm, 
 															  output_keep_prob=1-self.dropout_var)
 			self.decoder 		  = tf.nn.rnn_cell.MultiRNNCell([decode_lstm] * self.num_layers,
 																state_is_tuple=True)
-
 			self.W_embed 		  = tf.get_variable("W_embed", shape=[self.hidden_dim, self.embedding_dim], 
 										   			initializer=initializer)
 			self.b_embed 		  = tf.get_variable("b_embed", shape=[self.embedding_dim], 
@@ -178,7 +178,7 @@ class AttentionNN(object):
 			self.b_proj 		  = tf.get_variable("b_proj", shape=[self.vocab_size], 
 										  			initializer=initializer)
 
-			if self.use_attention:
+			if self.attention:
 
 				self.Wc = tf.get_variable("W_context", shape=[2 * self.hidden_dim, self.hidden_dim], 
 										  initializer=initializer)
@@ -194,25 +194,28 @@ class AttentionNN(object):
 				test_embeddings = tf.nn.embedding_lookup(self.target_embed, test_indices)
 
 		with tf.variable_scope("encoding"):
-			source_embeddings = tf.unpack(tf.nn.embedding_lookup(self.source_embed, self.source_batch), axis=1)
-			outputs, output_state_fw, output_state_bw = rnn.bidirectional_rnn(encode_lstm_fw, encode_lstm_bw, source_embeddings, dtype=tf.float32)
-			source_hidden_states = []
-			for t in xrange(self.max_size):
-				projection = tf.matmul(outputs[t], self.bidir_proj) + self.bidir_proj_bias
-				source_hidden_states.append(projection)
 			
-			if self.num_layers > 1:
-				initial_hidden_state = self.encoder.zero_state(self.batch_size, dtype=tf.float32)
-				hidden_state = initial_hidden_state
-				new_source_hidden_states = []
-				for t in xrange(self.max_size):
-					if t >= 1:
-						tf.get_variable_scope().reuse_variables()
-					output, hidden_state = self.encoder(source_hidden_states[t], hidden_state)
-					new_source_hidden_states.append(output)
-				source_hidden_states = new_source_hidden_states
+			source_embeddings = tf.unpack(tf.nn.embedding_lookup(self.source_embed, self.source_batch), axis=1)
+		
+			if self.bidirectional:
+				outputs, output_state_fw, output_state_bw = rnn.bidirectional_rnn(encode_lstm_fw, encode_lstm_bw, source_embeddings, \
+																				  sequence_length=self.source_lengths, dtype=tf.float32)
+				# inputs = []
+				# for t in xrange(self.max_size):
+				# 	projection = tf.matmul(outputs[t], self.bidir_proj) + self.bidir_proj_bias
+				# 	inputs.append(projection)
+				projections = tf.matmul(tf.reshape(tf.pack(outputs), [self.max_size * self.batch_size, 2 * self.hidden_dim]), \
+										self.bidir_proj) + self.bidir_proj_bias
+				inputs = tf.unpack(tf.reshape(projections, [self.max_size, self.batch_size, self.hidden_dim]), axis=0)
 
-		packed_source_hidden_states = tf.pack(source_hidden_states)
+			else:
+				inputs = source_embeddings
+				inputs, state = rnn.rnn(encode_lstm1, inputs, sequence_length=self.source_lengths, dtype=tf.float32)
+			
+			if self.num_layers == 2:
+				inputs, state = rnn.rnn(encode_lstm2, inputs, sequence_length=self.source_lengths, dtype=tf.float32, scope="layer2")
+
+			source_hidden_states = inputs
 
 		scores = []
 
@@ -231,13 +234,15 @@ class AttentionNN(object):
 				else:
 					projection = tf.matmul(test_embeddings, self.target_proj) + self.target_proj_bias
 
+				# initial_hidden_state = tf.nn.rnn_cell.LSTMStateTuple(output_state_fw[0], output_state_fw[1])
+				# initial_hidden_state = tuple([initial_hidden_state] * self.num_layers)
+				# initial_hidden_state = hidden_state
 				initial_hidden_state = self.decoder.zero_state(self.batch_size, dtype=tf.float32)
-				# initial_hidden_state_c = tf.matmul(tf.concat(1, [output_state_fw[0], output_state_bw[0]]), self.W_sc) + self.b_sc
-				# initial_hidden_state_h = tf.matmul(tf.concat(1, [output_state_fw[1], output_state_bw[1]]), self.W_sh) + self.b_sh
-				# initial_hidden_state = tf.nn.rnn_cell.LSTMStateTuple(initial_hidden_state_c, initial_hidden_state_h)
 				output, hidden_state = self.decoder(projection, initial_hidden_state)
 
-				if self.use_attention:
+				if self.attention:
+
+					packed_source_hidden_states = tf.pack(source_hidden_states)
 
 					attention_scores = tf.reduce_sum(tf.mul(output, packed_source_hidden_states), 2) # (M, B)
 
@@ -245,6 +250,8 @@ class AttentionNN(object):
 
 					alignments.append(a_t) # (B, M)
 
+					# states past a source examples sequence length should be zero in packed_source_hidden_states
+					# will not contribute to linear combination into c_t
 					c_t       = tf.batch_matmul(tf.transpose(packed_source_hidden_states, perm=[1, 2, 0]), tf.expand_dims(a_t, 2))
 
 					h_tilde_t = tf.tanh(tf.matmul(tf.concat(1, [tf.squeeze(c_t, [2]), output]), self.Wc) + self.bc)
@@ -254,6 +261,7 @@ class AttentionNN(object):
 					h_tilde_t = output
 
 				embed = tf.matmul(h_tilde_t, self.W_embed) + self.b_embed
+
 				score = tf.matmul(embed, self.W_proj) + self.b_proj 
 
 				# if sampling or testing, compute probabilities for bleu score
@@ -269,9 +277,9 @@ class AttentionNN(object):
 		# dont compute loss if sampling
 		if not self.is_sample:
 			logits = scores[:-1]
-			targets = tf.split(1, self.max_size, self.target_batch)[1:]
-			sequence_loss_weights = tf.unpack(self.sequence_loss_weights, axis=1)
-			self.loss = tf.nn.seq2seq.sequence_loss(logits, targets, sequence_loss_weights, average_across_timesteps=True)
+			targets = tf.unpack(self.target_batch, axis=1)[1:]
+			sequence_loss_weights = tf.unpack(tf.sequence_mask(self.target_lengths - 1, self.max_size - 1, dtype=tf.float32), axis=1)
+			self.loss = tf.nn.seq2seq.sequence_loss(logits, targets, sequence_loss_weights)
 		
 		# if sampling or testing, compute probabilities for bleu score
 		if self.is_sample or self.is_test:
@@ -309,16 +317,15 @@ class AttentionNN(object):
 
 			train_loss  = 0.0
 			num_batches = 0
-			for source_batch, target_batch, target_length in data.data_iterator(self.train_source_data_path, self.train_target_data_path, \
-																				self.vocab_index, self.max_size, self.batch_size):
-
-				# sequence_loss_weights = [[1.0 if j < t_l else 1.0 for j in range(self.max_size - 1)] for t_l in target_length]
-				sequence_loss_weights = [[1.0 if j < t_l else 0.0 for j in range(self.max_size - 1)] for t_l in target_length]
+			for source_batch, target_batch, source_lengths, target_lengths in data.data_iterator(self.train_source_data_path, self.train_target_data_path, \
+																								 self.vocab_index, self.max_size, self.batch_size):
 				
 				feed = {self.source_batch: source_batch, self.target_batch: target_batch, 
-						self.dropout_var: self.dropout, self.sequence_loss_weights: sequence_loss_weights}
+						self.dropout_var: self.dropout, self.source_lengths: source_lengths,
+						self.target_lengths: target_lengths}
 
 				_, batch_loss, summary = self.sess.run([self.optim, self.loss, merged_sum], feed)
+				# _, batch_loss, summary, debug = self.sess.run([self.optim, self.loss, merged_sum, self.debug], feed)
 
 				train_loss += batch_loss
 				
@@ -350,7 +357,7 @@ class AttentionNN(object):
 				# if validation loss increases, halt training
 				# model in previous epoch will be saved in checkpoint
 				if valid_loss > best_valid_loss:
-					if tolerance >= 10:
+					if tolerance >= 20:
 						break
 					else:
 						tolerance += 1
@@ -368,6 +375,9 @@ class AttentionNN(object):
 									os.path.join(self.checkpoint_directory, "MemN2N.model")
 									)
 
+			# if epoch % 1000 == 0:
+			# 	self.current_learning_rate /= 2
+
 	def test(self):
 
 		# only load if in test mode (rather than cv)
@@ -377,13 +387,12 @@ class AttentionNN(object):
 		test_loss = 0
 
 		num_batches = 0
-		for source_batch, target_batch, target_length in data.data_iterator(self.test_source_data_path, self.test_target_data_path, \
-																			self.vocab_index, self.max_size, self.batch_size):
-
-			sequence_loss_weights = [[1.0 if i < t_l else 0.0 for i in range(self.max_size - 1)] for t_l in target_length]
+		for source_batch, target_batch, source_lengths, target_lengths in data.data_iterator(self.test_source_data_path, self.test_target_data_path, \
+																							 self.vocab_index, self.max_size, self.batch_size):
 
 			feed = {self.source_batch: source_batch, self.target_batch: target_batch, 
-					self.dropout_var: 0.0, self.sequence_loss_weights:sequence_loss_weights}
+					self.dropout_var: 0.0, self.source_lengths: source_lengths,
+					self.target_lengths: target_lengths}
 
 			loss, = self.sess.run([self.loss], feed)
 
@@ -436,15 +445,12 @@ class AttentionNN(object):
 
 		with open(self.predictions_file, 'w') as predictions, open(self.truth_file, 'w') as truth:
 
-			for source_batch, target_batch, _ in data.data_iterator(self.test_source_data_path, self.test_target_data_path, \
-														 			self.vocab_index, self.max_size, self.batch_size):
+			for source_batch, target_batch, source_lengths, target_lengths in data.data_iterator(self.test_source_data_path, self.test_target_data_path, \
+														 										 self.vocab_index, self.max_size, self.batch_size):
 
-				# unused
-				psuedo_sequence_loss_weights = [[-1 for _ in range(self.max_size - 1)] for _ in range(len(source_batch))]
-				pseudo_target_batch   		 = [[-1 for _ in range(self.max_size)] for _ in range(self.batch_size)]
-
-				feed = {self.source_batch: source_batch, self.target_batch: pseudo_target_batch, 
-						self.dropout_var: 0.0, self.sequence_loss_weights:psuedo_sequence_loss_weights}
+				feed = {self.source_batch: source_batch, self.target_batch: target_batch, 
+						self.dropout_var: 0.0, self.source_lengths: source_lengths, 
+						self.target_lengths: target_lengths}
 
 				probabilities, alignments, = self.sess.run([self.probabilities, self.alignments], feed)
 
@@ -460,6 +466,9 @@ class AttentionNN(object):
 					target_indices  = np.argmax(target_probs, 1)
 					target_sentence = []
 					k = 0
+					# print([self.index_vocab[i] for i in source_batch[j]])
+					# print([self.index_vocab[i] for i in target_batch[j]])
+					# print([self.index_vocab[i] for i in target_indices])
 					for i in target_indices:
 						next_word   = self.index_vocab[i]
 						if next_word != "</s>":
@@ -483,6 +492,7 @@ class AttentionNN(object):
 							cur_word = "" + word[2:]
 						else:
 							cur_word += word
+					print(merged_sentence)
 					print(" ".join(merged_sentence).strip(), file=predictions)
 					# print(" ".join(target_sentence), file=predictions)
 					predictions.flush()
