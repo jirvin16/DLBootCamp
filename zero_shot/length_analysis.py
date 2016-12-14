@@ -82,7 +82,10 @@ def compute_bleu(bleu_script, lines):
   cmd = ['perl', bleu_script, temp_ref_file]
   p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
   out = p.communicate(input = open(temp_trans_file).read())[0]
-  bleu = out.strip().split()[2].replace(',','')
+  try:
+    bleu = out.strip().split()[2].replace(',','')
+  except:
+    return '0'
 
   os.remove(temp_file)
   os.remove(temp_ref_file)
@@ -121,10 +124,17 @@ def score_length(lines, sorted_lens, bleu_outfile):
     if num_sents == num_total_sents:
       break
 
+  score = 0
+  total_num_eval = 0
+
   with open(bleu_outfile, 'a') as outfile:
     print('bleu\tbleu_cum\tlen\tsize', file=outfile)
     for bleu, bleu_cum, score, num_eval in zip(bleus,bleus_cum,lens,total_eval):
       print(bleu + "\t" + bleu_cum + "\t" + repr(score) + "\t" + repr(num_eval), file=outfile)
+      score += float(bleu_cum)
+      total_num_eval += num_eval
+
+  return float(score) / total_num_eval
 
 
 def process_files(trans_file, ref_file, bleu_outfile):
@@ -165,7 +175,7 @@ def process_files(trans_file, ref_file, bleu_outfile):
     sorted_lens.append(lens[ii])
 
   # score
-  score_length(sorted_lines, sorted_lens, bleu_outfile)
+  return score_length(sorted_lines, sorted_lens, bleu_outfile)
 
 if __name__ == '__main__':
   args = process_command_line()

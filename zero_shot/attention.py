@@ -45,6 +45,7 @@ class AttentionNN(object):
 		self.model_name 		   = config.model_name
 		self.model_directory 	   = self.model_name
 		self.checkpoint_directory  = os.path.join(self.model_directory, "checkpoints")
+		self.keep_training 		   = config.keep_training
 		
 		# Dimensions and initialization parameters
 		self.init_min              = -0.04
@@ -70,7 +71,7 @@ class AttentionNN(object):
 			os.makedirs(self.model_directory)
 
 		if not os.path.isdir(self.checkpoint_directory):
-			if self.is_test or self.is_sample:
+			if self.is_test or self.is_sample or self.keep_training:
 				raise Exception(" [!] Checkpoints directory %s not found" % self.checkpoint_directory)
 			else:
 				os.makedirs(self.checkpoint_directory)
@@ -82,8 +83,14 @@ class AttentionNN(object):
 			self.outfile = os.path.join(self.model_directory, "sample.out")
 		else:
 			self.outfile = os.path.join(self.model_directory, "train.out")
+			if self.validate:
+				self.bleu_outfile = os.path.join(self.model_directory, "bleu.out")
 
-		with open(self.outfile, 'w') as outfile:
+		if self.keep_training:
+			write_mode = 'a'
+		else:
+			write_mode = 'w'
+		with open(self.outfile, write_mode) as outfile:
 			pprint(config.__dict__['__flags'], stream=outfile)
 			outfile.flush()
 
@@ -198,24 +205,24 @@ class AttentionNN(object):
 			source_embeddings = tf.unpack(tf.nn.embedding_lookup(self.source_embed, self.source_batch), axis=1)
 		
 			if self.bidirectional:
+				
 				outputs, output_state_fw, output_state_bw = rnn.bidirectional_rnn(encode_lstm_fw, encode_lstm_bw, source_embeddings, \
 																				  sequence_length=self.source_lengths, dtype=tf.float32)
-				# inputs = []
-				# for t in xrange(self.max_size):
-				# 	projection = tf.matmul(outputs[t], self.bidir_proj) + self.bidir_proj_bias
-				# 	inputs.append(projection)
+
 				projections = tf.matmul(tf.reshape(tf.pack(outputs), [self.max_size * self.batch_size, 2 * self.hidden_dim]), \
 										self.bidir_proj) + self.bidir_proj_bias
 				inputs = tf.unpack(tf.reshape(projections, [self.max_size, self.batch_size, self.hidden_dim]), axis=0)
 
 			else:
+				
 				inputs = source_embeddings
+				# inputs, state = rnn.rnn(encode_lstm1, inputs, sequence_length=self.source_lengths, dtype=tf.float32, scope="layer1/RNN")
 				inputs, state = rnn.rnn(encode_lstm1, inputs, sequence_length=self.source_lengths, dtype=tf.float32)
 			
 			if self.num_layers == 2:
 				inputs, state = rnn.rnn(encode_lstm2, inputs, sequence_length=self.source_lengths, dtype=tf.float32, scope="layer2")
 
-			source_hidden_states = inputs
+		source_hidden_states = inputs
 
 		scores = []
 
@@ -264,13 +271,11 @@ class AttentionNN(object):
 
 				score = tf.matmul(embed, self.W_proj) + self.b_proj 
 
-				# if sampling or testing, compute probabilities for bleu score
-				if self.is_test or self.is_sample:
-					
-					probability     = tf.nn.softmax(score)
-					probabilities.append(probability)
-					test_indices    = tf.to_int32(tf.argmax(probability, 1))
-					test_embeddings = tf.nn.embedding_lookup(self.target_embed, test_indices)
+				# compute probabilities for bleu score
+				probability     = tf.nn.softmax(score)
+				probabilities.append(probability)
+				test_indices    = tf.to_int32(tf.argmax(probability, 1))
+				test_embeddings = tf.nn.embedding_lookup(self.target_embed, test_indices)
 
 				scores.append(score)
 
@@ -281,14 +286,12 @@ class AttentionNN(object):
 			sequence_loss_weights = tf.unpack(tf.sequence_mask(self.target_lengths - 1, self.max_size - 1, dtype=tf.float32), axis=1)
 			self.loss = tf.nn.seq2seq.sequence_loss(logits, targets, sequence_loss_weights)
 		
-		# if sampling or testing, compute probabilities for bleu score
-		if self.is_sample or self.is_test:
-			self.probabilities = tf.transpose(tf.pack(probabilities), [1, 0, 2])
-			self.alignments = tf.transpose(tf.pack(alignments), [1, 0, 2]) # (M, B, M) -> (B, M, M)
+		# compute probabilities for bleu score
+		self.probabilities = tf.transpose(tf.pack(probabilities), [1, 0, 2])
+		self.alignments = tf.transpose(tf.pack(alignments), [1, 0, 2]) # (M, B, M) -> (B, M, M)
 
 		# only optimize if training
-		if not self.is_test and not self.is_sample:
-			self.optim = tf.contrib.layers.optimize_loss(self.loss, None, self.current_learning_rate, self.optimizer, clip_gradients=self.grad_max_norm, 
+		self.optim = tf.contrib.layers.optimize_loss(self.loss, None, self.current_learning_rate, self.optimizer, clip_gradients=self.grad_max_norm, 
 														 summaries=["learning_rate", "gradient_norm", "loss", "gradients"])
 		
 		self.sess.run(tf.initialize_all_variables())
@@ -313,7 +316,10 @@ class AttentionNN(object):
 
 		i 					= 0
 		best_valid_loss 	= float("inf")
-		for epoch in xrange(self.epochs):
+		best_bleu 			= 0.5
+		# for epoch in xrange(self.epochs):
+		t = time.time()
+		for epoch in xrange(2):
 
 			train_loss  = 0.0
 			num_batches = 0
@@ -325,55 +331,82 @@ class AttentionNN(object):
 						self.target_lengths: target_lengths}
 
 				_, batch_loss, summary = self.sess.run([self.optim, self.loss, merged_sum], feed)
-				# _, batch_loss, summary, debug = self.sess.run([self.optim, self.loss, merged_sum, self.debug], feed)
 
 				train_loss += batch_loss
+
+				num_batches += 1
 				
-				if i % 50 == 0:
+				if i % 100 == 0:
+
 					writer.add_summary(summary, i)
 					with open(self.outfile, 'a') as outfile:
-						print(batch_loss, file=outfile)
+						print("batch took {} seconds".format(time.time() - t), file=outfile)
+						t = time.time()
+						perplexity = np.exp(train_loss / num_batches)
+						state = {
+							"train_loss" : train_loss / num_batches,
+							"train_perplexity" : perplexity,
+							"learning_rate" : self.current_learning_rate
+						}
+						print(state, file=outfile)
 						outfile.flush()
-				
+						if self.validate:
+							valid_loss, bleu = self.test()
+							if bleu >= best_bleu:
+								self.saver.save(self.sess,
+												os.path.join(self.checkpoint_directory, "MemN2N.model")
+												)
+								best_bleu = bleu
+						print("validation took {} seconds".format(time.time() - t), file=outfile)
+						t = time.time()
+
+					previous_train_loss = train_loss / num_batches
+					train_loss = 0.0
+					num_batches = 0
+					
+
 				i += 1
-				num_batches += 1
 
-			perplexity = np.exp(train_loss / num_batches)
+			# perplexity = np.exp(train_loss / num_batches)
 
-			state = {
-				"train_loss" : train_loss / num_batches,
-				"train_perplexity" : perplexity,
-				"epoch" : epoch,
-				"learning_rate" : self.current_learning_rate,
-			}
+			# state = {
+			# 	"train_loss" : train_loss / num_batches,
+			# 	"train_perplexity" : perplexity,
+			# 	"epoch" : epoch,
+			# 	"learning_rate" : self.current_learning_rate,
+			# }
 
-			with open(self.outfile, 'a') as outfile:
-				print(state, file=outfile)
-				outfile.flush()
+			# with open(self.outfile, 'a') as outfile:
+			# 	print(state, file=outfile)
+			# 	outfile.flush()
 			
-			if self.validate:
-				valid_loss = self.test()
+			# if self.validate:
+			# 	valid_loss, bleu = self.test()
 
-				# if validation loss increases, halt training
-				# model in previous epoch will be saved in checkpoint
-				if valid_loss > best_valid_loss:
-					if tolerance >= 20:
-						break
-					else:
-						tolerance += 1
-				# save model after validation check
-				else:
-					tolerance = 0
-					self.saver.save(self.sess,
-									os.path.join(self.checkpoint_directory, "MemN2N.model")
-									)
-					best_valid_loss = valid_loss
+			# 	# if validation loss increases, halt training
+			# 	# model in previous epoch will be saved in checkpoint
+			# 	# if valid_loss > best_valid_loss:
+			# 	if bleu < best_bleu:
+			# 		# if tolerance >= 200:
+			# 		# 	break
+			# 		# else:
+			# 		# 	tolerance += 1
+			# 		pass
+			# 	# save model after validation check
+			# 	else:
+			# 		# tolerance = 0
+			# 		if epoch == self.epochs - 1:
+			# 			self.saver.save(self.sess,
+			# 							os.path.join(self.checkpoint_directory, "MemN2N.model")
+			# 							)
+			# 		# best_valid_loss = valid_loss
+			# 		best_bleu = bleu
 			
-			else:
-				if epoch % self.save_every == 0:
-					self.saver.save(self.sess,
-									os.path.join(self.checkpoint_directory, "MemN2N.model")
-									)
+			# else:
+			# 	if epoch % self.save_every == 0:
+			# 		self.saver.save(self.sess,
+			# 						os.path.join(self.checkpoint_directory, "MemN2N.model")
+			# 						)
 
 			# if epoch % 1000 == 0:
 			# 	self.current_learning_rate /= 2
@@ -407,22 +440,24 @@ class AttentionNN(object):
 
 		perplexity = np.exp(test_loss / num_batches)
 
+		self.sample()
+			
+		bleu = process_files(self.predictions_file, self.truth_file, self.bleu_outfile)
+		
 		state = {
 			"test_loss" : test_loss / num_batches,
 			"test_perplexity" : perplexity,
+			"bleu_score" : bleu
 		}
 
 		with open(self.outfile, 'a') as outfile:
 			print(state, file=outfile)
 			outfile.flush()
 
-		if self.is_test:
+		# if self.is_test:
 			
-			self.sample()
-			
-			process_files(self.predictions_file, self.truth_file, self.bleu_outfile)
 
-		return test_loss / num_batches
+		return test_loss / num_batches, bleu
 
 
 	def sample(self):
@@ -436,9 +471,11 @@ class AttentionNN(object):
 
 		num_batches = int(np.ceil(sample_size / self.batch_size))
 
-		if self.is_test:
+		# if self.is_test:
+		if not self.is_sample:
 			self.predictions_file = os.path.join(self.model_directory, "predictions.txt")
 			self.truth_file       = os.path.join(self.model_directory, "truth.txt")
+
 		else:
 			self.predictions_file = os.path.join(self.model_directory, "example.vi")
 			self.truth_file 	  = os.path.join(self.model_directory, "ignore.txt")
@@ -453,7 +490,7 @@ class AttentionNN(object):
 						self.target_lengths: target_lengths}
 
 				probabilities, alignments, = self.sess.run([self.probabilities, self.alignments], feed)
-
+				
 				# iterate through the batch examples
 				assert probabilities.shape[0] == alignments.shape[0]
 				for j in range(probabilities.shape[0]):
@@ -466,9 +503,6 @@ class AttentionNN(object):
 					target_indices  = np.argmax(target_probs, 1)
 					target_sentence = []
 					k = 0
-					# print([self.index_vocab[i] for i in source_batch[j]])
-					# print([self.index_vocab[i] for i in target_batch[j]])
-					# print([self.index_vocab[i] for i in target_indices])
 					for i in target_indices:
 						next_word   = self.index_vocab[i]
 						if next_word != "</s>":
@@ -492,12 +526,11 @@ class AttentionNN(object):
 							cur_word = "" + word[2:]
 						else:
 							cur_word += word
-					print(merged_sentence)
 					print(" ".join(merged_sentence).strip(), file=predictions)
 					# print(" ".join(target_sentence), file=predictions)
 					predictions.flush()
 
-					if self.is_test:
+					if not self.is_sample:
 						true_indices  = target_batch[j]
 						true_sentence = [self.index_vocab[i] for i in true_indices \
 										 if self.index_vocab[i] not in ["<pad>", "</s>", "<s>"]]
@@ -523,13 +556,14 @@ class AttentionNN(object):
 					# 		print(",".join([str(x) for x in alignment_scores]), file=predictions)
 
 
-
 	def run(self):
 		if self.is_test:
 			self.test()
 		elif self.is_sample:
 			self.sample()
 		else:
+			if self.keep_training:
+				self.load()
 			self.train()
 
 	def load(self):

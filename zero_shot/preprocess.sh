@@ -6,8 +6,8 @@
 # # Shuffle eng-german files together
 # paste -d '*' /deep/group/dlbootcamp/jirvin16/en-de/data.en /deep/group/dlbootcamp/jirvin16/en-de/data.de | shuf | awk -v FS="*" '{ print $1 > "/deep/group/dlbootcamp/jirvin16/en-de/shuffled_data.en" ; print $2 > "/deep/group/dlbootcamp/jirvin16/en-de/shuffled_data.de" }'
 # Undersample french-eng files
-NUM_EXAMPLES=110000
-TRAIN_SIZE=100000
+NUM_EXAMPLES=2000000
+TRAIN_SIZE=1990000
 VALID_SIZE=10000
 head -n $NUM_EXAMPLES /deep/group/dlbootcamp/jirvin16/fr-en/shuffled_data.fr > /deep/group/dlbootcamp/jirvin16/fr-en/sampled_data.fr
 head -n $NUM_EXAMPLES /deep/group/dlbootcamp/jirvin16/fr-en/shuffled_data.en > /deep/group/dlbootcamp/jirvin16/fr-en/sampled_data.en
@@ -28,7 +28,7 @@ tail -n $VALID_SIZE /deep/group/dlbootcamp/jirvin16/data/shuffled_data.fr_en > /
 head -n $TRAIN_SIZE /deep/group/dlbootcamp/jirvin16/data/shuffled_data.en_de > /deep/group/dlbootcamp/jirvin16/data/train.en_de
 tail -n $VALID_SIZE /deep/group/dlbootcamp/jirvin16/data/shuffled_data.en_de > /deep/group/dlbootcamp/jirvin16/data/valid.en_de
 # Combine files for word piece model
-cat /deep/group/dlbootcamp/jirvin16/data/shuffled_data.fr_en /deep/group/dlbootcamp/jirvin16/data/shuffled_data.en_de > /deep/group/dlbootcamp/jirvin16/data/all
+cat /deep/group/dlbootcamp/jirvin16/fr-en/sampled_data.fr /deep/group/dlbootcamp/jirvin16/fr-en/sampled_data.en /deep/group/dlbootcamp/jirvin16/en-de/sampled_data.en /deep/group/dlbootcamp/jirvin16/en-de/sampled_data.de > /deep/group/dlbootcamp/jirvin16/data/all
 # Run wordpiece model
 sh wordpiece.sh
 

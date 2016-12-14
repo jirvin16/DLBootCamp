@@ -1,5 +1,5 @@
 #!/bin/sh
-python learn_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -o /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -s 8000
+python learn_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -o /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -s 16000
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/train.fr_en -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/train.fr_en
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/valid.fr_en -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/valid.fr_en
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/test.fr -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/test.fr
@@ -7,7 +7,8 @@ python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/train.en_de -c /deep
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/valid.en_de -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/valid.en_de
 python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/test.de -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/test.de
 
-python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/segmented_all
+# python apply_bpe.py -i /deep/group/dlbootcamp/jirvin16/data/all -c /deep/group/dlbootcamp/jirvin16/final_data/wordpieces -o /deep/group/dlbootcamp/jirvin16/final_data/segmented_all
+cat /deep/group/dlbootcamp/jirvin16/final_data/train.fr_en /deep/group/dlbootcamp/jirvin16/final_data/valid.fr_en /deep/group/dlbootcamp/jirvin16/final_data/train.en_de /deep/group/dlbootcamp/jirvin16/final_data/valid.en_de > /deep/group/dlbootcamp/jirvin16/final_data/segmented_all 
 
 # # For french-english small pipeline
 # mkdir /deep/group/dlbootcamp/jirvin16/final_unilingual/

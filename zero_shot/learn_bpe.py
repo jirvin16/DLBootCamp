@@ -177,6 +177,8 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
 
+    print("starting to get vocab")
+
     vocab = get_vocabulary(args.input)
     vocab = dict([(tuple(x)+('</w>',) ,y) for (x,y) in vocab.items()])
 
@@ -187,6 +189,7 @@ if __name__ == '__main__':
     # threshold is inspired by Zipfian assumption, but should only affect speed
     threshold = max(stats.values()) / 10
     for i in range(args.symbols):
+        print(i)
         if stats:
             most_frequent = max(stats, key=stats.get)
 
