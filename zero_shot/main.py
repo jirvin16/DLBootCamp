@@ -30,6 +30,7 @@ flags.DEFINE_boolean("unilingual", False, "use unilingual french -> english for 
 flags.DEFINE_string("optimizer", "Adam", "Gradient descent optimizer [Adam]")
 flags.DEFINE_boolean("bidirectional", True, "Use bidirectional first layer in encoder [True]")
 flags.DEFINE_boolean("keep_training", False, "Restore checkpoint and continye training [False]")
+flags.DEFINE_boolean("pass_hidden_state", False, "Pass hidden state [False]")
 
 FLAGS = flags.FLAGS
 

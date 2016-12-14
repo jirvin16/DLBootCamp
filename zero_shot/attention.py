@@ -46,6 +46,7 @@ class AttentionNN(object):
 		self.model_directory 	   = self.model_name
 		self.checkpoint_directory  = os.path.join(self.model_directory, "checkpoints")
 		self.keep_training 		   = config.keep_training
+		self.pass_hidden_state 	   = config.pass_hidden_state
 		
 		# Dimensions and initialization parameters
 		self.init_min              = -0.04
@@ -241,10 +242,12 @@ class AttentionNN(object):
 				else:
 					projection = tf.matmul(test_embeddings, self.target_proj) + self.target_proj_bias
 
-				# initial_hidden_state = tf.nn.rnn_cell.LSTMStateTuple(output_state_fw[0], output_state_fw[1])
-				# initial_hidden_state = tuple([initial_hidden_state] * self.num_layers)
-				# initial_hidden_state = hidden_state
-				initial_hidden_state = self.decoder.zero_state(self.batch_size, dtype=tf.float32)
+				if self.pass_hidden_state:
+					initial_hidden_state = tf.nn.rnn_cell.LSTMStateTuple(output_state_fw[0], output_state_fw[1])
+					initial_hidden_state = tuple([initial_hidden_state] * self.num_layers)
+				else:
+					initial_hidden_state = self.decoder.zero_state(self.batch_size, dtype=tf.float32)
+				
 				output, hidden_state = self.decoder(projection, initial_hidden_state)
 
 				if self.attention:
@@ -442,7 +445,7 @@ class AttentionNN(object):
 
 		self.sample()
 			
-		bleu = process_files(self.predictions_file, self.truth_file, self.bleu_outfile)
+		bleu = process_files(self.predictions_file, self.truth_file, self.bleu_outfile, self.model_directory)
 		
 		state = {
 			"test_loss" : test_loss / num_batches,

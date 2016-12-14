@@ -59,13 +59,13 @@ def clean_line(line):
 def argsort(seq):
     return sorted(range(len(seq)), key=seq.__getitem__)
 
-def compute_bleu(bleu_script, lines):
+def compute_bleu(bleu_script, lines, model_directory):
   """
   Compute BLEU score for a set of lines.
   Each line contains: ref\ttrans
   """
 
-  temp_file = 'tmp' + str(int(time.time()))
+  temp_file = os.path.join(model_directory, 'tmp' + str(int(time.time())))
   temp_ref_file = temp_file + '.ref'
   temp_trans_file = temp_file + '.trans'
 
@@ -93,7 +93,7 @@ def compute_bleu(bleu_script, lines):
 
   return bleu
 
-def score_length(lines, sorted_lens, bleu_outfile):
+def score_length(lines, sorted_lens, bleu_outfile, model_directory):
   bleus = []
   bleus_cum = []
   lens = []
@@ -112,10 +112,10 @@ def score_length(lines, sorted_lens, bleu_outfile):
       num_sents = num_total_sents
 
     # individual group score
-    bleus.append(compute_bleu(bleu_script, lines[prev_num_sents:num_sents]))
+    bleus.append(compute_bleu(bleu_script, lines[prev_num_sents:num_sents], model_directory))
    
     # cumulative score
-    bleus_cum.append(compute_bleu(bleu_script, lines[:num_sents]))
+    bleus_cum.append(compute_bleu(bleu_script, lines[:num_sents], model_directory))
 
     lens.append(numpy.mean(sorted_lens[num_sents-1]))
     total_eval.append(len(lines[prev_num_sents:num_sents]))
@@ -131,13 +131,13 @@ def score_length(lines, sorted_lens, bleu_outfile):
     print('bleu\tbleu_cum\tlen\tsize', file=outfile)
     for bleu, bleu_cum, score, num_eval in zip(bleus,bleus_cum,lens,total_eval):
       print(bleu + "\t" + bleu_cum + "\t" + repr(score) + "\t" + repr(num_eval), file=outfile)
-      score += float(bleu_cum)
+      score += float(bleu) * num_eval
       total_num_eval += num_eval
 
   return float(score) / total_num_eval
 
 
-def process_files(trans_file, ref_file, bleu_outfile):
+def process_files(trans_file, ref_file, bleu_outfile, model_directory):
   """
   Read data from trans_file, and output to ref_file
   """
@@ -175,7 +175,7 @@ def process_files(trans_file, ref_file, bleu_outfile):
     sorted_lens.append(lens[ii])
 
   # score
-  return score_length(sorted_lines, sorted_lens, bleu_outfile)
+  return score_length(sorted_lines, sorted_lens, bleu_outfile, model_directory)
 
 if __name__ == '__main__':
   args = process_command_line()
