@@ -319,10 +319,10 @@ class AttentionNN(object):
 
 		i 					= 0
 		best_valid_loss 	= float("inf")
-		best_bleu 			= 0.5
+		best_bleu 			= 0.012
 		# for epoch in xrange(self.epochs):
 		t = time.time()
-		for epoch in xrange(2):
+		for epoch in xrange(4):
 
 			train_loss  = 0.0
 			num_batches = 0
@@ -369,6 +369,8 @@ class AttentionNN(object):
 					
 
 				i += 1
+
+			self.current_learning_rate /= 2
 
 			# perplexity = np.exp(train_loss / num_batches)
 
